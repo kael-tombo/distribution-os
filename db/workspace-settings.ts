@@ -7,6 +7,7 @@
  * `crypto.randomUUID()` and timestamps use `Date.now()`.
  */
 import { getRawDb } from "./index";
+import { getExecutionSpend } from "./execution-capacity";
 import {
   DEFAULT_SETTINGS,
   parseForbiddenClaims,
@@ -51,7 +52,7 @@ export async function getOrCreateSettings(
     .bind(workspaceId)
     .first<WorkspaceSettingsRow>();
   if (existing) {
-    return existing;
+    return { ...existing, ...await getExecutionSpend(db, workspaceId) };
   }
 
   const now = Date.now();
@@ -86,7 +87,7 @@ export async function getOrCreateSettings(
   if (!row) {
     throw new Error("Failed to create workspace settings");
   }
-  return row;
+  return { ...row, ...await getExecutionSpend(db, workspaceId) };
 }
 
 /**
@@ -180,7 +181,7 @@ export async function updateSettings(
   if (!updated) {
     throw new Error("Workspace settings disappeared after update");
   }
-  return updated;
+  return { ...updated, ...await getExecutionSpend(db, workspaceId) };
 }
 
 /**
@@ -221,7 +222,7 @@ export async function addForbiddenClaim(
   if (!updated) {
     throw new Error("Workspace settings disappeared after update");
   }
-  return updated;
+  return { ...updated, ...await getExecutionSpend(db, workspaceId) };
 }
 
 /**
@@ -261,7 +262,7 @@ export async function removeForbiddenClaim(
   if (!updated) {
     throw new Error("Workspace settings disappeared after update");
   }
-  return updated;
+  return { ...updated, ...await getExecutionSpend(db, workspaceId) };
 }
 
 function stripUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {

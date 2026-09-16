@@ -5,10 +5,13 @@ import {
 } from "../lib/mission-lifecycle-pure";
 import { createExperiment } from "./experiments";
 import { createContentAsset } from "./content-assets";
-import { enqueueAction } from "./actions";
+import { approveAction, enqueueAction, getAction } from "./actions";
+import { ActionDecisionConflict } from "./action-decisions";
 import { createMissionVersion, createStrategyVersion } from "./versions";
 import { calculateCost } from "./agent-runs-pure";
 import { createEvidence } from "./evidence";
+import { MISSION_MEASUREMENT_SIGNALS_SQL } from "./mission-signals";
+import { getMissionNextStep, type MissionNextStep } from "../lib/mission-next-step";
 
 export type MissionMode = "simulation" | "live";
 
@@ -54,6 +57,9 @@ export type MissionWebsiteEvidence = {
 };
 
 export type MissionSummary = {
+  next_step: MissionNextStep;
+  measurement_signal_count: number;
+  synthesis_mode: MissionMode;
   mission_id: string;
   current_stage: string;
   cycle_number: number;
@@ -375,7 +381,7 @@ export async function advanceMission(missionId: string, workspaceId: string) {
       db.prepare("SELECT COUNT(*) AS count FROM action_queue WHERE workspace_id = ? AND mission_id = ? AND status = 'approved'").bind(workspaceId, missionId).first<{ count: number }>(),
       db.prepare("SELECT COUNT(*) AS count FROM action_queue WHERE workspace_id = ? AND mission_id = ? AND status = 'executed'").bind(workspaceId, missionId).first<{ count: number }>(),
       db.prepare("SELECT COUNT(*) AS count FROM experiments WHERE workspace_id = ? AND mission_id = ? AND status IN ('draft', 'running')").bind(workspaceId, missionId).first<{ count: number }>(),
-      db.prepare("SELECT (SELECT COUNT(*) FROM touchpoints WHERE workspace_id = ? AND mission_id = ?) + (SELECT COUNT(*) FROM payments WHERE workspace_id = ? AND mission_id = ?) + (SELECT COUNT(*) FROM evidence WHERE workspace_id = ? AND mission_id = ? AND source_type != 'website') AS count").bind(workspaceId, missionId, workspaceId, missionId, workspaceId, missionId).first<{ count: number }>(),
+      db.prepare(MISSION_MEASUREMENT_SIGNALS_SQL).bind(workspaceId, missionId, workspaceId, missionId).first<{ count: number }>(),
     ]);
   const readiness = getMissionReadiness(stateFromRow(row), {
     pendingApprovals: pending?.count ?? 0,
@@ -428,7 +434,8 @@ export async function advanceMission(missionId: string, workspaceId: string) {
 export async function approveMission(
   missionId: string,
   workspaceId: string,
-  decidedBy = "Human operator",
+  decidedBy: string,
+  reviewed: { actionId: string; payloadHash: string },
 ) {
   const db = getRawDb();
   const row = await db
@@ -436,38 +443,11 @@ export async function approveMission(
     .bind(missionId, workspaceId)
     .first<MissionRow>();
   if (!row) return null;
-  const now = Date.now();
-  await db
-    .prepare("UPDATE action_queue SET status = 'expired', updated_at = ? WHERE workspace_id = ? AND mission_id = ? AND status = 'prepared' AND expires_at <= ?")
-    .bind(now, workspaceId, missionId, now)
-    .run();
-  const preparedAction = await db
-    .prepare("SELECT id FROM action_queue WHERE workspace_id = ? AND mission_id = ? AND status = 'prepared' AND expires_at > ? ORDER BY created_at ASC LIMIT 1")
-    .bind(workspaceId, missionId, now)
-    .first<{ id: string }>();
-  if (row.approved && !preparedAction) return getMission(missionId, workspaceId);
-  if (!preparedAction) {
-    throw new Error("MISSION_BLOCKED: No unexpired prepared action is available for approval.");
+  const action = await getAction(workspaceId, reviewed.actionId);
+  if (!action || action.mission_id !== missionId) {
+    throw new ActionDecisionConflict();
   }
-
-  const statements = [
-    db
-      .prepare("UPDATE missions SET approved = 1, updated_at = ? WHERE id = ? AND workspace_id = ?")
-      .bind(now, missionId, workspaceId),
-    db
-      .prepare(
-        "INSERT INTO mission_events (mission_id, event_type, title, detail, actor, created_at) VALUES (?, 'approval', 'External action approved', 'The next reviewed distribution batch may be released after its destination account is connected. This does not authorize spend or payment configuration.', ?, ?)"
-      )
-      .bind(missionId, decidedBy, now),
-  ];
-  if (preparedAction) {
-    statements.push(
-      db
-        .prepare("UPDATE action_queue SET status = 'approved', decided_by = ?, decided_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ? AND status = 'prepared'")
-        .bind(decidedBy, now, now, preparedAction.id, workspaceId),
-    );
-  }
-  await db.batch(statements);
+  await approveAction(workspaceId, action.id, decidedBy, reviewed.payloadHash);
 
   return getMission(missionId, workspaceId);
 }
@@ -554,9 +534,9 @@ export async function getMissionSummary(
       .first<{ count: number }>(),
     db
       .prepare(
-        "SELECT (SELECT COUNT(*) FROM touchpoints WHERE workspace_id = ? AND mission_id = ?) + (SELECT COUNT(*) FROM payments WHERE workspace_id = ? AND mission_id = ?) + (SELECT COUNT(*) FROM evidence WHERE workspace_id = ? AND mission_id = ? AND source_type != 'website') AS count",
+        MISSION_MEASUREMENT_SIGNALS_SQL,
       )
-      .bind(workspaceId, missionId, workspaceId, missionId, workspaceId, missionId)
+      .bind(workspaceId, missionId, workspaceId, missionId)
       .first<{ count: number }>(),
   ]);
 
@@ -586,6 +566,14 @@ export async function getMissionSummary(
     experiment_count: experimentCountResult?.count ?? 0,
     payment_count: paymentCountResult?.count ?? 0,
     pending_approval_count: pendingApprovalResult?.count ?? 0,
+    synthesis_mode: row.mode,
+    measurement_signal_count: measurementSignalResult?.count ?? 0,
+    next_step: getMissionNextStep({
+      current_stage: row.current_stage,
+      payment_count: paymentCountResult?.count ?? 0,
+      open_experiment_count: openExperimentResult?.count ?? 0,
+      can_advance: readiness.can_advance,
+    }),
     open_experiment_count: openExperimentResult?.count ?? 0,
     readiness_score: readiness.readiness_score,
     can_advance: readiness.can_advance,

@@ -568,3 +568,77 @@
 .search-input-clear { display:inline-flex; align-items:center; justify-content:center; width:1.4rem; height:1.4rem; flex:none; border:0; border-radius:.4rem; background:transparent; color:#64748b; cursor:pointer; }
 .search-input-clear:hover { color:#cbd5e1; background:rgba(255,255,255,.05); }
 .search-input-clear svg { width:.85rem; }
+
+.mission-outcome { margin:1rem 0; border-color:rgba(190,242,100,.25); }
+.mission-outcome-refresh { display:flex; justify-content:flex-end; margin-bottom:.75rem; }
+.campaign-flow { display:flex; gap:1rem; padding:0; margin:1.5rem 0; list-style:none; }
+.campaign-flow li { display:flex; align-items:center; gap:.65rem; color:#cbd5e1; font-size:.85rem; }
+.campaign-flow span, .planning-step { display:grid; place-items:center; min-width:2rem; height:2rem; border:1px solid #334155; border-radius:.6rem; color:#bef264; font-size:.75rem; }
+.brief-layout { display:grid; grid-template-columns:minmax(0,2fr) minmax(230px,1fr); gap:1.25rem; align-items:start; }
+.brief-form, .brief-history, .objective-form, .campaign-plan-card, .planning-empty { padding:1.5rem; min-width:0; }
+.brief-status, .planning-toolbar, .planning-section-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+.brief-status { margin-bottom:1.25rem; }
+.brief-status span, .brief-note, .brief-history time { color:#94a3b8; font-size:.8rem; line-height:1.6; }
+.brief-fields { display:grid; gap:1rem; min-width:0; border:0; padding:0; margin:0; }
+.brief-fields label { display:grid; gap:.5rem; color:#e2e8f0; font-size:.85rem; min-width:0; }
+.brief-fields input, .brief-fields textarea, .brief-fields [data-slot=select-trigger] { background:#0b1220; border-color:#334155; color:#f1f5f9; width:100%; }
+.brief-fields input[type=date] { color-scheme:dark; }
+.brief-fields textarea { min-height:6rem; }
+.brief-channels { min-width:0; border:0; padding:0; }
+.brief-channels legend { color:#e2e8f0; margin-bottom:.75rem; font-size:.85rem; }
+.brief-channels > div { display:flex; flex-wrap:wrap; gap:.65rem; }
+.brief-channels > div > label { display:flex; align-items:center; gap:.5rem; padding:.6rem .8rem; border:1px solid #334155; border-radius:.65rem; }
+.brief-channels p { color:#94a3b8; margin-top:.7rem; font-size:.8rem; }
+.brief-actions { display:flex; flex-wrap:wrap; gap:.75rem; margin-top:1rem; }
+.brief-actions button { white-space:normal; height:auto; min-height:2.5rem; padding:.6rem 1rem; }
+.brief-note { margin:.85rem 0; }
+.brief-feedback { color:#fde68a; background:#332b18; border:1px solid #786133; border-radius:.65rem; padding:1rem; margin:1rem 0; font-size:.85rem; overflow-wrap:anywhere; }
+.brief-history h2 { color:#f8fafc; margin-bottom:.65rem; font-size:1.1rem; }
+.brief-history p { color:#94a3b8; line-height:1.6; font-size:.85rem; overflow-wrap:anywhere; }
+.brief-history ol { list-style:none; padding:0; margin-top:1rem; max-height:35rem; overflow:auto; }
+.brief-history li { display:grid; gap:.5rem; border-top:1px solid #263244; padding:1rem 0; }
+.brief-history li strong { color:#e2e8f0; }
+.campaign-planning { display:grid; gap:1.25rem; margin-top:2.5rem; }
+.planning-toolbar h2 { color:#f8fafc; font-size:1.35rem; margin-bottom:.35rem; }
+.planning-toolbar p, .planning-section-heading p, .campaign-plan-card > p, .objective-confirmation > p { color:#94a3b8; line-height:1.6; font-size:.85rem; }
+.planning-section-heading { justify-content:flex-start; margin-bottom:1.25rem; }
+.planning-section-heading h2 { color:#f8fafc; font-size:1.15rem; }
+.planning-section-heading > div { flex:1; min-width:150px; }
+.objective-grid, .plan-evidence-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+.objective-readback { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; margin:1.25rem 0; }
+.objective-readback dt { color:#94a3b8; font-size:.75rem; margin-bottom:.3rem; }
+.objective-readback dd { color:#f1f5f9; font-size:.9rem; line-height:1.6; overflow-wrap:anywhere; }
+.objective-confirmation h3, .plan-hypothesis strong { color:#bef264; }
+.objective-details { padding:.85rem 1rem; background:#0b1220; border:1px solid #263244; border-radius:.65rem; }
+.objective-details summary { color:#cbd5e1; cursor:pointer; font-size:.85rem; }
+.planning-status { border:1px solid #475569; border-radius:2rem; padding:.4rem .75rem; color:#cbd5e1; font-size:.75rem; }
+.planning-status-completed { border-color:#466830; color:#bef264; }
+.planning-status-failed { border-color:#786133; color:#fde68a; }
+.campaign-plan-result { display:grid; gap:1.25rem; margin-top:1.25rem; }
+.campaign-plan-result p { font-size:.9rem; line-height:1.7; color:#cbd5e1; overflow-wrap:anywhere; }
+.campaign-plan-result .plan-summary { font-size:1rem; color:#f1f5f9; }
+.plan-hypothesis { padding:1rem; border-left:2px solid #bef264; background:#111c20; }
+.plan-channel-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:1rem; }
+.plan-channel-grid > section { border:1px solid #334155; border-radius:.75rem; padding:1rem; }
+.plan-channel-grid header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.5rem; margin-bottom:.75rem; }
+.plan-channel-grid header span { font-size:.7rem; color:#fde68a; }
+.plan-channel-grid h3, .plan-evidence-grid h3, .plan-next-decision h3 { color:#f8fafc; font-size:1rem; }
+.plan-channel-grid h4 { color:#94a3b8; font-size:.75rem; margin:1rem 0 .3rem; }
+.plan-evidence-grid ul { list-style:disc; padding-left:1.2rem; margin-top:.6rem; color:#cbd5e1; font-size:.85rem; line-height:1.7; }
+.plan-evidence-grid li + li { margin-top:.5rem; }
+.plan-next-decision { display:flex; gap:1rem; padding:1.2rem; border:1px solid #466830; border-radius:.75rem; }
+.plan-next-decision > svg { flex-shrink:0; color:#bef264; }
+.planning-empty { display:grid; gap:.6rem; color:#cbd5e1; }
+.planning-empty > svg { color:#bef264; }
+@media (max-width:760px) { .brief-layout, .objective-grid, .objective-readback, .plan-evidence-grid { grid-template-columns:1fr; } .campaign-flow { flex-direction:column; gap:.5rem; } .brief-form, .brief-history, .objective-form, .campaign-plan-card { padding:1rem; } .brief-history ol { max-height:16rem; } }
+.mission-outcome-heading { display:flex; justify-content:space-between; align-items:start; gap:1rem; flex-wrap:wrap; }
+.mission-outcome-heading h2 { font-size:1.35rem; color:#f8fafc; }
+.mission-outcome-mode { color:#cbd5e1; font-size:.75rem; border:1px solid rgba(255,255,255,.15); border-radius:.5rem; padding:.4rem .6rem; }
+.mission-outcome-next { display:flex; align-items:center; justify-content:space-between; gap:1.5rem; margin:1rem 0; padding:1rem; border-radius:.75rem; background:#0e1422; }
+.mission-outcome-next small { color:#bef264; }
+.mission-outcome-next h3 { color:#f8fafc; margin:.35rem 0; font-size:1.1rem; }
+.mission-outcome-next p, .mission-outcome-gate { color:#cbd5e1; font-size:.85rem; line-height:1.6; }
+.mission-outcome-next p { margin:.5rem 0; }
+.mission-outcome-next button { flex-shrink:0; }
+.mission-outcome-gate ul { list-style:disc; padding-left:1.2rem; margin-top:.5rem; }
+@media (max-width:760px) { .mission-outcome-next { flex-direction:column; align-items:stretch; } .mission-outcome-next button { white-space:normal; height:auto; min-height:2.5rem; } }

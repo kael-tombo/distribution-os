@@ -50,6 +50,27 @@
       "when": 1788645087669,
       "tag": "0006_powerful_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788807548098,
+      "tag": "0007_swift_chameleon",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788809086509,
+      "tag": "0008_fine_vampiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789324829888,
+      "tag": "0009_pretty_lionheart",
+      "breakpoints": true
     }
   ]
 }

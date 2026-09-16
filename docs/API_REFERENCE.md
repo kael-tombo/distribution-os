@@ -12,6 +12,99 @@ with `oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`)
 which the routes consume through `requireRequestIdentity` in
 `db/workspaces.ts`.
 
+## Mission outcome projection
+
+`GET /api/missions/:mission_id/summary` requires workspace identity and returns `404` outside the caller's workspace. Its `summary` includes `synthesis_mode`, `measurement_signal_count` and `next_step` (`title`, `reason`, `result`, `label`, `destination`) alongside stage, counts and blockers. Destinations are workspace views, not execution commands. Guidance is deterministic by stage; it is not a ranked opportunity or revenue forecast.
+
+Measurement signals are mission-linked signed Resend delivery/engagement/failure events plus successful Stripe payments. Internal evidence, API acceptance and unmatched events do not count. The same query feeds the `measure` advancement gate. Counts cover the whole mission, not a particular experiment or cycle. `readiness_score` remains for compatibility; the main overview uses gate states instead.
+
+## Campaign brief
+
+`GET /api/campaign-brief` and `PUT /api/campaign-brief` require identity and derive the workspace from it. Both successful responses use `Cache-Control: no-store`.
+
+GET returns `{ current: BriefRevision | null, revisions: BriefRevision[] }`, newest first, limited to 20 revisions. A revision contains `revision`, `brief` and `created_at` (epoch milliseconds). No saved brief returns `current: null` and an empty history.
+
+PUT accepts the exact shape below and returns `200` with `{ current: BriefRevision }`:
+
+```json
+{
+  "expected_revision": 0,
+  "brief": {
+    "product": "Team planning",
+    "objective": "Launch the team plan",
+    "audience": "Small marketing teams",
+    "channels": ["LinkedIn", "YouTube"],
+    "success_measure": "10 qualified demo requests in 30 days",
+    "constraints": "Use approved claims; human production handoff."
+  }
+}
+```
+
+Use `expected_revision: 0` for the first save and the last reviewed revision thereafter. A stale revision returns `409`; load the latest and reconcile edits before resubmitting. Revision and audit writes commit together. A retry after a lost successful response returns a conflict instead of creating a duplicate revision; GET reveals the saved result. This route uses revision matching rather than the generic `Idempotency-Key` header.
+
+Product, objective, audience and success measure are required nonblank strings with limits of 160, 2000, 2000 and 1000 characters. Constraints is required but may be empty (maximum 3000). Channels must be unique, with at least one of Website, Email, LinkedIn, X, Instagram, TikTok, YouTube or Reddit. Unknown fields are rejected. Invalid JSON or input returns `400`, missing identity `401`, a UTF-8 body over 40,000 bytes `413`, and persistence errors `500`.
+
+Channel preferences do not establish account access. Saving creates no mission, production request, spending authorization or publication. Full workspace data export includes all `campaign_brief_versions`, and workspace data deletion removes them.
+
+## Campaign objectives and planning jobs
+
+All `/api/campaign-plans` routes require identity, derive the workspace from it,
+and return `Cache-Control: no-store`. POST bodies are bounded to 40,000 bytes.
+
+- `GET /api/campaign-plans` returns `{ records, ai_available, ai_blocker }`.
+  Records are the latest 20 jobs, newest first, including their exact brief,
+  objective, mode, status, attempt count, lease expiry and validated result.
+- `POST /api/campaign-plans` confirms an objective and creates a queued job.
+  It does not run the planner. Success is `200 { record }`, including replay
+  of an identical confirmation. One objective is allowed per brief revision;
+  changed inputs require a new saved brief revision.
+- `GET /api/campaign-plans/:plan_id` returns `200 { record }` or `404` outside
+  the authenticated workspace.
+- `POST /api/campaign-plans/:plan_id` takes
+  `{ "action": "run" | "retry" | "cancel", "expected_attempts": number }`.
+  Run uses attempt zero; retry uses the current nonzero count. A successful
+  run returns the persisted `completed` or `failed` record, not a fabricated
+  provider success. Clients must inspect `record.status`.
+
+Confirmation body:
+
+```json
+{
+  "brief_revision": 1,
+  "mode": "checklist",
+  "objective": {
+    "metric": "Qualified demos",
+    "unit": "requests",
+    "direction": "increase",
+    "baseline": null,
+    "target": 10,
+    "source": "CRM qualified demos report",
+    "start_date": "2026-09-08",
+    "end_date": "2026-10-08",
+    "guardrails": "Count opted-in, qualified leads only",
+    "attribution_limits": "Association does not establish causal lift"
+  }
+}
+```
+
+Direction is `increase` or `decrease`. Baseline is nullable, never implicitly
+zero; target and any baseline must be finite, nonnegative and at most 1e12.
+A known baseline must improve in the chosen direction. Calendar dates must
+exist and the end cannot precede the start. Unknown fields are rejected.
+
+AI mode requires explicit server opt-in and an exact authorized workspace.
+Unavailable configuration returns `503` before claim/submission. Failed model
+calls do not switch modes. Claims enforce three attempts per job and ten per
+workspace in a rolling 24-hour window. Conflicts, active leases and exhausted
+limits return `409`. Two-minute expired leases require explicit retry or
+cancellation; no automatic dispatch occurs on GET. Cancellation of a currently
+active request is rejected. A retry after an ambiguous AI request may incur
+additional usage. Result writes require the matching unexpired claim token.
+
+Results retain mode, model, prompt version, provider response ID and reported
+token counts. No bill amount or verified marketing outcome is inferred.
+Objective, job and attempt tables participate in full workspace export/deletion.
+
 ## Conventions
 
 | Property            | Value                                                                 |
@@ -178,7 +271,7 @@ Advances or approves the current mission.
 | `action`   | Effect                                                                                |
 | ---------- | ------------------------------------------------------------------------------------- |
 | `advance`  | Attempts the next governed stage (`observe → decide → approve → act → measure → learn → observe`). Server-side readiness checks can return `409` until exact-action approval, provider-confirmed execution, or measurement evidence exists. |
-| `approve`  | Approves the next unexpired prepared action and records the caller identity; it does not execute the provider action. |
+| `approve`  | Requires `action_id` and the exact reviewed 64-character SHA-256 `payload_hash`. The action must belong to this mission and workspace and remain prepared and unexpired. Its approval, audit, mission flag, and mission event commit together; it does not execute the provider action. |
 
 **Response 200:** Same shape as `POST /api/mission`.
 

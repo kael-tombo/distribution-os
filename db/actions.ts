@@ -7,6 +7,7 @@
  * timestamps with `Date.now()`.
  */
 import { getRawDb } from "./index";
+import { ActionDecisionConflict, commitActionDecision } from "./action-decisions";
 import {
   assertStatus,
   buildIdempotencyKey,
@@ -188,8 +189,9 @@ export async function approveAction(
   workspaceId: string,
   actionId: string,
   decidedBy: string,
+  payloadHash: string,
 ): Promise<ActionRow> {
-  return transitionAction(workspaceId, actionId, "approved", decidedBy);
+  return transitionAction(workspaceId, actionId, "approved", decidedBy, { payloadHash });
 }
 
 /**
@@ -200,15 +202,17 @@ export async function rejectAction(
   workspaceId: string,
   actionId: string,
   decidedBy: string,
+  blocker?: string,
 ): Promise<ActionRow> {
-  return transitionAction(workspaceId, actionId, "rejected", decidedBy);
+  return transitionAction(workspaceId, actionId, "rejected", decidedBy, { blocker });
 }
 
 async function transitionAction(
   workspaceId: string,
   actionId: string,
-  to: ActionStatus,
+  to: "approved" | "rejected" | "expired",
   decidedBy: string,
+  options: { payloadHash?: string; blocker?: string } = {},
 ): Promise<ActionRow> {
   const db = getRawDb();
   const current = await getAction(workspaceId, actionId);
@@ -216,27 +220,12 @@ async function transitionAction(
     throw new Error(`Action not found: ${actionId}`);
   }
   if (to !== "expired" && current.expires_at <= Date.now()) {
-    await transitionAction(workspaceId, actionId, "expired", "system:expiry");
-    throw new Error(`Action ${actionId} has expired and cannot be approved`);
+    if (canTransition(current.status, "expired")) {
+      await commitActionDecision(db, current, "expired", "system:expiry");
+    }
+    throw new ActionDecisionConflict();
   }
-  if (!canTransition(current.status, to)) {
-    throw new Error(
-      `Action ${actionId} cannot transition from ${current.status} to ${to}`,
-    );
-  }
-  const now = Date.now();
-  await db
-    .prepare(
-      "UPDATE action_queue SET status = ?, decided_by = ?, decided_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ?",
-    )
-    .bind(to, decidedBy, now, now, workspaceId, actionId)
-    .run();
-
-  const updated = await getAction(workspaceId, actionId);
-  if (!updated) {
-    throw new Error(`Action disappeared after update: ${actionId}`);
-  }
-  return updated;
+  return commitActionDecision(db, current, to, decidedBy, options);
 }
 
 /**
@@ -261,13 +250,12 @@ export async function expireOverdueActions(
   const expired: ActionRow[] = [];
   for (const row of candidates.results) {
     if (!canTransition(row.status, "expired")) continue;
-    await db
-      .prepare(
-        "UPDATE action_queue SET status = 'expired', updated_at = ? WHERE workspace_id = ? AND id = ? AND status = ?",
-      )
-      .bind(now, workspaceId, row.id, row.status)
-      .run();
-    expired.push({ ...row, status: "expired", updated_at: now });
+    try {
+      expired.push(await commitActionDecision(db, row, "expired", "system:expiry", { now }));
+    } catch (error) {
+      if (!(error instanceof ActionDecisionConflict)) throw error;
+      // Another decision or an in-flight provider attempt owns the action.
+    }
   }
   return expired;
 }

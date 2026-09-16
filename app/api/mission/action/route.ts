@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { ActionDecisionConflict } from "../../../../db/action-decisions";
+import { missionActionSchema } from "../../../../lib/mission-action-input";
 import { advanceMission, approveMission, getMission } from "../../../../db/missions";
 import {
   ensureWorkspace,
@@ -8,11 +10,6 @@ import {
 import { getRawDb } from "../../../../db/index";
 import { buildAuditEntry, hashIp } from "../../../../db/audit-pure";
 import { buildVersionId, nextVersionNumber } from "../../../../db/versions-pure";
-
-const actionSchema = z.object({
-  mission_id: z.string().trim().min(1).max(120),
-  action: z.enum(["advance", "approve"]),
-});
 
 async function logAuditEvent(args: {
   workspaceId: string;
@@ -98,10 +95,12 @@ export async function POST(request: Request) {
   try {
     const identity = requireRequestIdentity(request);
     const workspace = await ensureWorkspace(identity);
-    const input = actionSchema.parse(await request.json());
+    const input = missionActionSchema.parse(await request.json());
 
     if (input.action === "approve") {
-      const result = await approveMission(input.mission_id, workspace.id, identity.userId);
+      const result = await approveMission(input.mission_id, workspace.id, identity.userId, {
+        actionId: input.action_id, payloadHash: input.payload_hash,
+      });
       if (!result) {
         return Response.json({ error: "Mission not found." }, { status: 404 });
       }
@@ -162,7 +161,8 @@ export async function POST(request: Request) {
     return Response.json(refreshed ?? advanced);
   } catch (error) {
     if (error instanceof Error && error.message === "AUTH_REQUIRED") return Response.json({ error: "Sign in to control this mission." }, { status: 401 });
-    if (error instanceof z.ZodError) {
+    if (error instanceof ActionDecisionConflict) return Response.json({ error: error.message }, { status: 409 });
+    if (error instanceof z.ZodError || error instanceof SyntaxError) {
       return Response.json({ error: "Invalid mission action." }, { status: 400 });
     }
     if (error instanceof Error && error.message.startsWith("MISSION_BLOCKED:")) {

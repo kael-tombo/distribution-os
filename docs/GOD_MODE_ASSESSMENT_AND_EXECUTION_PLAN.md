@@ -1,5 +1,7 @@
 # Distribution OS — Repository-Grounded Product and Implementation Specification
 
+> Historical assessment. The owner's revised target and delivery order are defined in [Platform Vision and Workflow](PLATFORM_VISION_AND_WORKFLOW.md): voice-first campaign management, 20+ connected tools, and delegated specialist content production. Current State remains the authority for runtime claims.
+
 Verified against branch `armand-ratombotiana/v2` on 2026-09-06. Runtime claims below are based on source, schema, migrations, routes, tests, and configuration—not UI appearance. The 84 normalized engineering stories are in [USER_STORIES.md](USER_STORIES.md); the longer target-state rationale remains in [PRODUCT_IMPLEMENTATION_SPEC.md](PRODUCT_IMPLEMENTATION_SPEC.md).
 
 ## 1. Executive summary

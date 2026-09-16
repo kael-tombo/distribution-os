@@ -15,7 +15,8 @@
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "lint": "node scripts/sites-command.mjs lint",
     "verify": "npm run typecheck && npm run lint && npm test",
-    "db:generate": "node scripts/sites-command.mjs db:generate"
+    "db:generate": "node scripts/sites-command.mjs db:generate",
+    "db:migrate:local": "node scripts/migrate-local.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

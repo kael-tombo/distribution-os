@@ -2,22 +2,28 @@
 
 **Status:** Delivery baseline
 
-**Version:** 1.0
+**Version:** 2.0 direction update; detailed historical stories retained
 
-**Date:** 2026-09-06
+**Date:** 2026-09-07
 
 **Owner:** Product and Engineering
 
-**North-star outcome:** first attributable, provider-verified payment
+**Outcome model:** campaign-specific awareness, qualified demand, adoption, retention and revenue; first verified payment is an early-stage objective.
 **Runtime truth source:** [`CURRENT_STATE.md`](CURRENT_STATE.md)
 
+**Delivery practice:** [Outcome-oriented delivery](OUTCOME_DELIVERY.md) records the current review, shipped story increment, acceptance evidence and remaining user outcomes. Catalog coverage is not delivery evidence.
+
 > This document defines the target product and the backlog needed to reach it. It does not override runtime truth. At this baseline, URL ingestion, a durable mission graph, governed actions, a narrow Resend email adapter, signed Resend events, and signed Stripe payment events exist. Social publishing, OAuth connector installations, durable autonomous jobs, reply correlation, and the multi-agent workforce are not yet production capabilities.
+
+## Direction precedence
+
+[Platform Vision and Workflow](PLATFORM_VISION_AND_WORKFLOW.md) is the authoritative target following the owner's clarification: voice-first agentic campaign management, more than 20 connected tools, and external specialist production of all final creative content. [Integration Feasibility](INTEGRATION_FEASIBILITY.md) records the 31-tool target and access constraints. V2-01 through V2-18 and phases F0-F4 supersede conflicting priorities below. The historical 84-story catalog is retained for traceability, not treated as a complete voice-first implementation backlog. Runtime truth remains in Current State.
 
 ## 1. Executive product definition
 
 Distribution OS is a governed commercial operating system that converts one public website URL into a continuously improving path to qualified demand and verified revenue. It observes a business, separates facts from assumptions, recommends the highest-value next move, obtains the required human approval, executes only through a proven connector, measures the real provider outcome, attributes commercial value, and changes future decisions from evidence.
 
-The first sellable product is deliberately narrow: a founder submits a website, confirms the generated business profile, reviews one evidence-backed opportunity, approves one compliant distribution action, captures a lead, follows up through Gmail, and sees a Stripe payment tied back to that action with an explicit confidence score. Time-to-first-value is under 15 minutes; time-to-first-approved-action is under 30 minutes for a complete website.
+The first complete product pilot is a voice-briefed campaign: confirm solution context and objective, commission final content from specialists, review exact assets and destinations, publish through two qualified channel routes, recover failures, and inspect results in a spoken review. This proves a reusable campaign workflow while the platform expands to the six core social channels and 20+ qualified tools.
 
 The product contract is:
 
@@ -83,7 +89,7 @@ Google Analytics or PostHog, Search Console, one compliant primary distribution 
 
 ### Could have
 
-Additional social channels, CRM sync, advanced multi-touch models, multi-brand portfolios, ad platforms, semantic vector retrieval, video/image generation, and autonomy level 3 for low-risk workflows.
+Additional social channels, CRM sync, advanced multi-touch models, multi-brand portfolios, ad platforms, semantic vector retrieval, delegated video/image production, and autonomy level 3 for low-risk workflows.
 
 ### Won't have yet
 
@@ -173,7 +179,7 @@ The aggregate path is `Organization → Workspace → Mission → StrategyVersio
 | Mission Control | Choose next best action; **Review next action** | Revenue truth → mission stage → recommendation → blockers/jobs → activity | First-run checklist; skeleton; degraded data; verified success; blocked; approval card | Single-column cards; sticky action; semantic headings/live job announcements |
 | Intelligence | Confirm business understanding; **Review profile** | Confirmed facts → assumptions/unknowns → market/audience → evidence | No crawl; extracting; stale/contradicted; saved version | Field accordions; evidence drawer; keyboard diff controls |
 | Opportunities | Select leverage; **Create experiment** | Ranked queue → score explanation → brief/outcomes | No qualified opportunity; rescoring; stale inputs; dismissed | Sort/filter sheet; non-color score labels |
-| Content | Produce compliant asset; **Generate draft** | Strategy → drafts → claim/evidence panel → variants/performance | Empty; generating; validation error; review/approved/scheduled/published/simulated | Preview tabs; textarea labels; character counts announced |
+| Content | Commission and review specialist output; **Request production** | Strategy → drafts → claim/evidence panel → variants/performance | Empty; generating; validation error; review/approved/scheduled/published/simulated | Preview tabs; textarea labels; character counts announced |
 | Campaigns | Coordinate delivery; **Create campaign** | Objective/status → actions → budget → results | Draft/approval/running/paused/complete/failed | Condensed timeline; touch targets ≥44px |
 | Experiments | Reach a decision; **Start experiment** | Hypothesis → metric/denominator → variants → result/lesson | Insufficient sample; instrument missing; killed/won/lost/inconclusive | Comparison cards/table alternative |
 | Leads | Work highest-intent lead; **Draft follow-up** | Queue → identity/consent → timeline → next task | Empty/importing/duplicate/suppressed/unsubscribed | Master-detail becomes routes; focus management |
@@ -197,7 +203,7 @@ Global navigation uses the required labels in this order: Mission Control, Intel
 | Mission Control | Next action, blockers, jobs, verified revenue | Generic dashboard widgets | Decision speed |
 | Strategic Intelligence | Brief, audiences, positioning with evidence | Autonomous strategy replacement | Better decisions |
 | Opportunity Engine | Explainable rank/brief/experiment conversion | Unlimited speculative ideas | Learning/revenue potential |
-| Content OS | Evidence-grounded one-channel variants | Full creative suite | Qualified engagement |
+| Content OS | Externally produced variants with traceable briefs and review | Full creative suite | Qualified engagement |
 | Distribution | One proven adapter and truthful states | Catalog breadth without execution | Reliable action |
 | Campaigns/experiments | Hypothesis-to-decision record | Enterprise MMM | Causal learning |
 | Leads/Gmail | Consent-aware capture, reply, follow-up | Cold batch sequencer | Conversations |

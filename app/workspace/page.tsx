@@ -17,6 +17,12 @@ export default async function WorkspacePage({ searchParams }: { searchParams: Pr
   const params = await searchParams;
   const initialUrl = publicWebsiteUrl(params.website_url);
   const returnTo = initialUrl ? `/workspace?website_url=${encodeURIComponent(initialUrl)}` : "/workspace";
+  return <AuthenticatedWorkspace initialUrl={initialUrl} returnTo={returnTo} />;
+}
+
+// Vinext probes page components before supplying their real search params.
+// Keep redirects in a child so the submitted website survives that probe.
+async function AuthenticatedWorkspace({ initialUrl, returnTo }: { initialUrl: string; returnTo: string }) {
   const user = await requireChatGPTUser(returnTo);
   return <WorkspaceClient userId={user.userId} displayName={user.displayName} email={user.email} initialUrl={initialUrl} />;
 }

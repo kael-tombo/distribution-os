@@ -54,6 +54,11 @@ export async function POST(request: Request) {
       organizationsResult,
       membershipsResult,
       invitationsResult,
+      campaignBriefVersionsResult,
+      campaignObjectivesResult,
+      campaignPlanningJobsResult,
+      campaignPlanningAttemptsResult,
+      executionSubmissionsResult,
     ] = await Promise.all([
       db
         .prepare(
@@ -169,6 +174,12 @@ export async function POST(request: Request) {
         )
         .bind(workspaceId)
         .all(),
+      db.prepare("SELECT * FROM campaign_brief_versions WHERE workspace_id = ? ORDER BY revision DESC")
+        .bind(workspaceId).all(),
+      db.prepare("SELECT * FROM campaign_objectives WHERE workspace_id = ? ORDER BY created_at DESC").bind(workspaceId).all(),
+      db.prepare("SELECT id, workspace_id, objective_id, status, attempts, lease_expires_at, error, result_json, created_at, updated_at FROM campaign_planning_jobs WHERE workspace_id = ? ORDER BY created_at DESC").bind(workspaceId).all(),
+      db.prepare("SELECT * FROM campaign_planning_attempts WHERE workspace_id = ? ORDER BY started_at DESC").bind(workspaceId).all(),
+      db.prepare("SELECT * FROM execution_submissions WHERE workspace_id = ? ORDER BY started_at DESC").bind(workspaceId).all(),
     ]);
 
     const payload = {
@@ -176,6 +187,10 @@ export async function POST(request: Request) {
       exported_at: exportedAt,
       schema_version: 2,
       tables: {
+        campaign_brief_versions: campaignBriefVersionsResult.results,
+        campaign_objectives: campaignObjectivesResult.results,
+        campaign_planning_jobs: campaignPlanningJobsResult.results,
+        campaign_planning_attempts: campaignPlanningAttemptsResult.results,
         workspaces: workspacesResult.results,
         workspace_connections: connectionsResult.results,
         workspace_settings: settingsResult.results,
@@ -188,6 +203,7 @@ export async function POST(request: Request) {
         contacts: contactsResult.results,
         action_queue: actionsResult.results,
         action_execution_attempts: actionExecutionAttemptsResult.results,
+      execution_submissions: executionSubmissionsResult.results,
         provider_webhook_events: providerWebhookEventsResult.results,
         payments: paymentsResult.results,
         touchpoints: touchpointsResult.results,

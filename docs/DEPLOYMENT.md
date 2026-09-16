@@ -284,11 +284,11 @@ Commit the new file alongside the schema change.
 
 ### Apply migrations locally
 
-The local D1 instance is migrated automatically on first run of
-`npm run dev`. To manually apply migrations to the local database:
+Docker startup applies pending migrations automatically. Before using
+`npm run dev` directly, apply migrations to the same local D1 state:
 
 ```bash
-npx wrangler d1 migrations apply DB --local
+npm run db:migrate:local
 ```
 
 ### Apply migrations to preview

@@ -2,6 +2,7 @@ import vinext from "vinext";
 import { defineConfig } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
+import { localWorkspace } from "./build/local-workspace-plugin";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
@@ -44,6 +45,9 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    // Custom cache paths must retain a node_modules segment: Vinext's CommonJS
+    // plugin uses it to skip already-optimized dependencies.
+    cacheDir: process.env.VITE_CACHE_DIR ?? "node_modules/.vite",
     server: {
       host: "0.0.0.0",
       allowedHosts: ["terminal.local"],
@@ -52,6 +56,7 @@ export default defineConfig(async () => {
         : {}),
     },
     plugins: [
+      localWorkspace(),
       vinext(),
       sites(),
       cloudflare({

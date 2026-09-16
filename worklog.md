@@ -2175,3 +2175,61 @@ untouched. The new tests import exclusively from the existing
   the documented sensitive ones) and assert the marker never appears
   in any projection — this would catch a future regression where a
   new sensitive field is added without being redacted.
+
+## 2026-09-07 — Campaign brief completion and documentation review
+
+Reviewed Current State, Platform Vision and Workflow, Outcome Delivery, README,
+and the API/testing guidance. Continued the unfinished text-briefing increment
+aligned with V2-01, without claiming voice or specialist dispatch is complete.
+
+- Generated and inspected migration 0007_swift_chameleon.sql and its Drizzle
+  snapshot/journal entry; applied migrations locally.
+- Fixed the brief editor's unknown JSON types, validated response projections,
+  guarded cancelled reads and moved retry loading state into the user event.
+- Validated repository inputs before writing so invalid direct calls cannot
+  commit a revision and then fail during projection.
+- Added nine regression cases using actual migrated SQLite and transactional
+  batch semantics: required context, isolated histories, competing saves,
+  audit rollback, invalid input, immutable history, deletion and exact handoff.
+- Documented the implemented text flow, endpoint contract, limits and next
+  objective/command work. Corrected obsolete test-runner/typechecking claims.
+- TypeScript, final lint/build and the full test suite passed. Brief regressions:
+  9 passed. No production provider request or public action was initiated.
+- Rebuilt the existing Docker app after discovering its older image owned the
+  loopback preview port; retained its volumes and applied migration 0007.
+- Hosted publishing is blocked: the configured Sites project returned
+  project_not_found. The Ship Studio preview handoff also could not resolve
+  a focused project. Browser interaction and pilot usability were not tested.
+- Post-restart HTTP smoke checks passed against the existing Docker app:
+  anonymous brief GET returned 401, authenticated history GET returned 200,
+  and invalid PUT returned 400. The check did not save or replace a brief.
+
+## 2026-09-07 — Structured objectives and durable campaign planning
+
+Continued implementation across UI/UX, frontend, backend and AI infrastructure.
+
+- Added the responsive brief → objective readback → planning review workflow,
+  unknown-baseline handling, guarded recovery controls and portable plans.
+  New users without missions open Campaign Brief; website-analysis failures no
+  longer prevent authenticated campaign planning.
+- Added strict objective/result contracts, optional workspace-bound AI strategy
+  planning and an explicitly deterministic checklist. Model calls are bounded,
+  have no tools, retain prompt/model/usage provenance, and never silently fall
+  back after failure. No final creative-production capability is claimed.
+- Added migration 0008 for objectives, planning jobs and attempts. Confirmation,
+  claims, results and audit use transactions, with exact-revision/attempt checks,
+  fencing tokens, two-minute leases, three attempts/job and ten attempts/workspace
+  per rolling day. Execution remains request-driven, with explicit recovery.
+- Added authenticated bounded-body APIs and included all new records in export
+  and deletion. Fixed the command launcher to forward preview port/other flags.
+- Added 20 domain/database/provider contract tests, a rendered planning-card
+  case and a disposable-container HTTP smoke script. TypeScript, lint, build
+  and the complete suite passed. The HTTP smoke passed the full checklist path
+  against local D1, including duplicate/conflict handling and AI mode gating.
+- Rebuilt and updated the main Docker app with existing data volumes retained;
+  the separate synthetic test container was stopped and automatically removed.
+- Updated Current State, README, API reference, testing, outcome record and the
+  new Campaign Planning Architecture document. Live model quality, voice,
+  background consumption and specialist production remain unverified/unbuilt.
+- Sites still reports project_not_found. Ship Studio has no focused project,
+  so no browser interaction/visual usability verification is claimed.

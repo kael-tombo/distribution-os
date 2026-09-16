@@ -17,6 +17,10 @@ const confirmSchema = z.object({
  * after the batch so the audit log never claims a failed deletion completed.
  */
 const DELETION_TABLES = [
+  "campaign_planning_attempts",
+  "campaign_planning_jobs",
+  "campaign_objectives",
+  "campaign_brief_versions",
   "agent_runs",
   "mission_versions",
   "strategy_versions",
@@ -26,6 +30,7 @@ const DELETION_TABLES = [
   "content_assets",
   "experiments",
   "provider_webhook_events",
+  "execution_submissions",
   "action_execution_attempts",
   "action_queue",
   "contacts",

@@ -1,0 +1,31 @@
+name: distribution-os-local
+
+services:
+  app:
+    image: distribution-os-app:latest
+    build:
+      context: .
+      target: development
+    init: true
+    ports:
+      - "127.0.0.1:${APP_PORT:-5173}:5173"
+    env_file:
+      - path: .dev.vars
+        required: false
+    environment:
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: "true"
+      CLOUDFLARE_CF_FETCH_ENABLED: "false"
+      CLOUDFLARE_INCLUDE_PROCESS_ENV: "true"
+      VITE_CACHE_DIR: /app/.sites-runtime/node_modules/.vite
+      DISTRIBUTION_LOCAL_WORKSPACE: "1"
+    healthcheck:
+      start_period: 5m
+    volumes:
+      - wrangler_state:/app/.wrangler
+      - sites_runtime:/app/.sites-runtime
+    stop_grace_period: 15s
+
+volumes:
+  wrangler_state:
+  sites_runtime:

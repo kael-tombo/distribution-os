@@ -1,4 +1,5 @@
 import { getRawDb } from "./index";
+import { beginApprovedSubmission, claimApprovedExecution, finishSubmission, type ExecutionClaimInput } from "./action-execution-claims";
 
 export type ExecutionAttemptStatus =
   | "claimed"
@@ -32,37 +33,8 @@ export type ExecutionAttemptSummary = Omit<
   "workspace_id" | "receipt_json"
 > & { receipt: Record<string, unknown> | null };
 
-export async function claimExecutionAttempt(input: {
-  workspaceId: string;
-  missionId: string;
-  actionId: string;
-  provider: string;
-  idempotencyKey: string;
-  payloadHash: string;
-}): Promise<{ attempt: ActionExecutionAttemptRow; created: boolean }> {
-  const db = getRawDb();
-  const now = Date.now();
-  const id = `att_${crypto.randomUUID()}`;
-  const result = await db
-    .prepare(
-      "INSERT INTO action_execution_attempts (id, workspace_id, mission_id, action_id, provider, idempotency_key, payload_hash, status, attempt_count, started_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'claimed', 1, ?, ?, ?) ON CONFLICT(idempotency_key) DO NOTHING",
-    )
-    .bind(
-      id,
-      input.workspaceId,
-      input.missionId,
-      input.actionId,
-      input.provider,
-      input.idempotencyKey,
-      input.payloadHash,
-      now,
-      now,
-      now,
-    )
-    .run();
-  const attempt = await getExecutionAttemptByKey(input.workspaceId, input.idempotencyKey);
-  if (!attempt) throw new Error("Execution attempt could not be claimed");
-  return { attempt, created: Number(result.meta.changes ?? 0) === 1 };
+export async function claimExecutionAttempt(input: ExecutionClaimInput): Promise<{ attempt: ActionExecutionAttemptRow; created: boolean }> {
+  return claimApprovedExecution(getRawDb(), input);
 }
 
 export async function getExecutionAttemptByKey(
@@ -89,53 +61,22 @@ export async function markAttemptSubmitting(
   workspaceId: string,
   attemptId: string,
   expectedStatuses: ExecutionAttemptStatus[],
-): Promise<boolean> {
-  const allowed = expectedStatuses.filter((status) => ["claimed", "failed", "unknown"].includes(status));
-  if (allowed.length === 0) return false;
-  const placeholders = allowed.map(() => "?").join(",");
-  const now = Date.now();
-  const result = await getRawDb()
-    .prepare(
-      `UPDATE action_execution_attempts SET status = 'submitting', attempt_count = CASE WHEN status = 'claimed' THEN attempt_count ELSE attempt_count + 1 END, error_code = NULL, error_message = NULL, updated_at = ? WHERE workspace_id = ? AND id = ? AND status IN (${placeholders})`,
-    )
-    .bind(now, workspaceId, attemptId, ...allowed)
-    .run();
-  return Number(result.meta.changes ?? 0) === 1;
+  settingsUpdatedAt: number,
+): Promise<string | null> {
+  return beginApprovedSubmission(getRawDb(), workspaceId, attemptId, expectedStatuses, Date.now(), settingsUpdatedAt);
 }
 
 export async function finishExecutionAttempt(input: {
   workspaceId: string;
   attemptId: string;
+  submissionToken: string;
   status: "succeeded" | "failed" | "unknown";
   providerRequestId?: string | null;
   receipt?: Record<string, unknown>;
   errorCode?: string | null;
   errorMessage?: string | null;
 }): Promise<ActionExecutionAttemptRow> {
-  const db = getRawDb();
-  const now = Date.now();
-  await db
-    .prepare(
-      "UPDATE action_execution_attempts SET status = ?, provider_request_id = ?, receipt_json = ?, error_code = ?, error_message = ?, completed_at = ?, updated_at = ? WHERE workspace_id = ? AND id = ? AND status = 'submitting'",
-    )
-    .bind(
-      input.status,
-      input.providerRequestId ?? null,
-      input.receipt ? JSON.stringify(input.receipt) : null,
-      input.errorCode ?? null,
-      input.errorMessage?.slice(0, 1_000) ?? null,
-      now,
-      now,
-      input.workspaceId,
-      input.attemptId,
-    )
-    .run();
-  const row = await db
-    .prepare("SELECT * FROM action_execution_attempts WHERE workspace_id = ? AND id = ? LIMIT 1")
-    .bind(input.workspaceId, input.attemptId)
-    .first<ActionExecutionAttemptRow>();
-  if (!row) throw new Error("Execution attempt disappeared");
-  return row;
+  return finishSubmission(getRawDb(), input);
 }
 
 export function summarizeExecutionAttempt(

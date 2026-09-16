@@ -36,7 +36,8 @@ const timeoutMs = commandName === "build"
   ? Number(process.env.SITES_BUILD_TIMEOUT_MS || 180_000)
   : 0;
 
-const child = spawn(process.execPath, command, {
+// Preserve caller flags, including the port selected by the workspace preview.
+const child = spawn(process.execPath, [...command, ...process.argv.slice(3)], {
   cwd: projectRoot,
   env: {
     ...process.env,

@@ -138,6 +138,7 @@ export async function sendWithResend(args: {
   try {
     const response = await fetchImpl("https://api.resend.com/emails", {
       method: "POST",
+      signal: AbortSignal.timeout(60_000),
       headers: {
         Authorization: `Bearer ${args.apiKey}`,
         "Content-Type": "application/json",

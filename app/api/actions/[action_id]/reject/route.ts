@@ -5,7 +5,7 @@ import {
   rejectAction,
   summarizeForDisplay,
 } from "../../../../../db/actions";
-import { logAuditEvent } from "../../../../../db/audit";
+import { ActionDecisionConflict } from "../../../../../db/action-decisions";
 
 const rejectSchema = z.object({
   blocker: z.string().trim().max(500).optional(),
@@ -27,34 +27,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     const input = rejectSchema.parse(await request.json().catch(() => ({})));
 
-    let updated;
-    try {
-      updated = await rejectAction(workspace.id, action_id, workspace.owner_user_id);
-    } catch {
-      return Response.json(
-        { error: "Action cannot be rejected from its current state." },
-        { status: 400 }
-      );
-    }
-
-    try {
-      await logAuditEvent(workspace.id, {
-        actor_user_id: workspace.owner_user_id,
-        event_category: "approval",
-        event_type: "action.rejected",
-        action_id: updated.id,
-        resource_type: "action",
-        resource_id: updated.id,
-        detail: {
-          mission_id: updated.mission_id,
-          previous_status: action.status,
-          next_status: updated.status,
-          blocker: input.blocker ?? null,
-        },
-      });
-    } catch {
-      // Audit logging must never break the primary operation.
-    }
+    const updated = await rejectAction(workspace.id, action_id, workspace.owner_user_id, input.blocker);
 
     return Response.json({ action: summarizeForDisplay(updated) }, { status: 201 });
   } catch (error) {
@@ -64,8 +37,11 @@ export async function POST(request: Request, context: RouteContext) {
     if (error instanceof z.ZodError) {
       return Response.json({ error: "Invalid rejection request." }, { status: 400 });
     }
+    if (error instanceof ActionDecisionConflict) {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
     return Response.json(
-      { error: error instanceof Error ? error.message : "Action could not be rejected." },
+      { error: "Action could not be rejected. Refresh its state before retrying." },
       { status: 500 }
     );
   }
