@@ -64,3 +64,40 @@ Release source is the commit containing these repairs. The existing private
 source branch is an ancestor of this branch; no force-push is needed. Access
 remains owner-only. Deployment and final live-check results are recorded below
 when available.
+
+## Shipped private release
+
+Source: `08b1ce724e51d9ed4776246a8531e17b1790b3f0`.
+Private deployment succeeded at 2026-09-20 20:15 UTC:
+https://distribution-os.razafimanantsoamarin.chatgpt.site
+
+- Sites version: 3, `appgprj_6a9c84f0dfac8191a7780ca1d6975f2f~appgver_e741540fe5348191a1c231bb0428e23b`.
+- Deployment: `appgdep_6ab03ea6239c8191b51beac29d4ff595`, status `succeeded`.
+- GitHub release review: https://github.com/kael-tombo/distribution-os/pull/5.
+- GitHub CI also passed typecheck, lint, build and the complete suite on the
+  release source: run `35534852248`, duration 1m16s.
+- With the CA bundle installed, authenticated local capture of
+  `https://example.com/` passed. Mission
+  `MISSION-0248ce97-26b9-4f9e-ac22-e787cb3596c7` retained 127 characters of real
+  source text. An exact reload after restarting the container passed, with
+  unchanged content hash `7accd734e486cb977d50b201b2688c54251dbe209280c76e1a1303d2586b4ee0`.
+- Docker smoke `verify` passed after restart, including workspace/session
+  persistence. The test also rejected private URL intake with HTTP 400.
+- No live AI request, email, social post, payment or external invitation was sent.
+
+## Remaining limitations
+
+This is the existing private planning MVP, not completion of PRODUCT.md's
+URL-to-X publication promise. X OAuth, publishing and metrics remain absent.
+DNS/rebinding isolation and an external user's authenticated hosted capture
+journey remain unverified; US-001 is not marked Complete. Local Docker remains
+loopback-only. No interactive browser/mobile QA was performed in this release.
+
+`npm audit --omit=dev` reported zero high/critical findings and one moderate
+transitive finding in `baseline-browser-mapping@2.10.30`,
+[GHSA-w5vr-8v7q-w6rv](https://github.com/advisories/GHSA-w5vr-8v7q-w6rv).
+It is reached through Next/build tooling; searches found no matching module or
+export names in the emitted Worker. That is an exposure assessment, not proof
+that the dependency is vulnerability-free. A separate narrow lockfile update to
+the patched 2.11.0 or newer remains recommended. The default branch's broader
+GitHub alert count was not represented as this release's audit result.
