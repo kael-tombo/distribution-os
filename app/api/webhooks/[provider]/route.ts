@@ -5,6 +5,12 @@ import {
   classifyWebhookEvent,
   verifyStripeSignature,
 } from "../../../../lib/webhook-signature-pure";
+import { hashPayload } from "../../../../db/actions";
+import { getRawDb } from "../../../../db/index";
+import {
+  resendEventState,
+  verifyAndParseResendWebhook,
+} from "../../../../lib/resend-webhook";
 
 type RouteContext = {
   params: Promise<{ provider: string }>;
@@ -27,6 +33,12 @@ type RouteContext = {
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { provider } = await context.params;
+    if (provider.toLowerCase() === "resend") {
+      return handleResendWebhook(request);
+    }
+    if (provider.toLowerCase() !== "stripe") {
+      return Response.json({ error: "Unsupported webhook provider." }, { status: 404 });
+    }
     const signatureHeader = request.headers.get("stripe-signature") ?? "";
     const rawBody = await request.text();
 
@@ -66,35 +78,45 @@ export async function POST(request: Request, context: RouteContext) {
     const eventId =
       typeof payload.id === "string" ? payload.id : crypto.randomUUID();
 
-    // Extract the workspace id from the event payload. Stripe does not know
-    // about Distribution OS workspaces, so we require integrators to attach
-    // the workspace id as `workspace_id` metadata on the source object. When
-    // absent, the payment is recorded under a synthetic "unattributed" tenant
-    // so the event is still observable in the audit log.
-    const workspaceId =
-      readWorkspaceIdFromPayload(payload) ?? "ws_unattributed";
+    // Stripe does not know Distribution OS tenancy, so the integration must
+    // copy workspace_id into metadata on every relevant source object. Missing
+    // tenancy is rejected rather than assigned to a synthetic shared tenant.
+    const workspaceId = readMetadataValue(payload, "workspace_id");
+    if (!workspaceId) {
+      return Response.json(
+        { error: "Stripe object metadata.workspace_id is required." },
+        { status: 400 },
+      );
+    }
 
-    if (eventClass === "payment") {
+    const recordsPayment =
+      ["payment", "refund", "dispute", "invoice"].includes(eventClass) ||
+      eventType === "checkout.session.completed";
+    if (recordsPayment) {
       const amountCents = readAmountCents(payload);
       const currency = readCurrency(payload);
       const providerPaymentId = readProviderPaymentId(payload);
       const status = readPaymentStatus(eventType);
       if (providerPaymentId && amountCents !== null) {
-        try {
-          await recordPayment(workspaceId, {
-            provider,
-            provider_payment_id: providerPaymentId,
-            amount_cents: amountCents,
-            currency,
-            status,
-            raw_event: payload,
-            received_at: Date.now(),
-          });
-        } catch {
-          // Recording the payment must never block the webhook
-          // acknowledgement — Stripe retries failed deliveries, so a transient
-          // D1 error should still return 200 to stop the retry storm.
-        }
+        await recordPayment(workspaceId, {
+          mission_id: readMetadataValue(payload, "mission_id"),
+          action_id: readMetadataValue(payload, "action_id"),
+          experiment_id: readMetadataValue(payload, "experiment_id"),
+          provider,
+          provider_payment_id: providerPaymentId,
+          amount_cents: amountCents,
+          currency,
+          status,
+          attribution_confidence: readMetadataValue(payload, "action_id")
+            ? 100
+            : readMetadataValue(payload, "mission_id")
+              ? 70
+              : 0,
+          attributed_at: readMetadataValue(payload, "mission_id") ? Date.now() : null,
+          raw_event: payload,
+          received_at: Date.now(),
+        });
+        // Persistence failures intentionally bubble so Stripe can retry.
       }
     }
 
@@ -128,8 +150,92 @@ export async function POST(request: Request, context: RouteContext) {
   }
 }
 
-function readWorkspaceIdFromPayload(payload: Record<string, unknown>): string | null {
-  const direct = payload.workspace_id;
+async function handleResendWebhook(request: Request): Promise<Response> {
+  const runtime = env as unknown as {
+    RESEND_WEBHOOK_SECRET?: string;
+    RESEND_WORKSPACE_ID?: string;
+  };
+  const secret = runtime.RESEND_WEBHOOK_SECRET?.trim();
+  const enabledWorkspaceId = runtime.RESEND_WORKSPACE_ID?.trim();
+  if (!secret || !enabledWorkspaceId) {
+    return Response.json({ error: "Resend webhook verification is not configured." }, { status: 503 });
+  }
+  const rawBody = await request.text();
+  const eventId = request.headers.get("svix-id")?.trim() ?? "";
+  const timestamp = request.headers.get("svix-timestamp")?.trim() ?? "";
+  const signature = request.headers.get("svix-signature")?.trim() ?? "";
+  if (!eventId || !timestamp || !signature) {
+    return Response.json({ error: "Missing Resend webhook signature headers." }, { status: 401 });
+  }
+
+  let event;
+  try {
+    event = verifyAndParseResendWebhook({ rawBody, secret, id: eventId, timestamp, signature });
+  } catch {
+    return Response.json({ error: "Invalid Resend webhook signature or payload." }, { status: 401 });
+  }
+
+  const db = getRawDb();
+  const now = Date.now();
+  const parsedOccurredAt = Date.parse(event.created_at);
+  const occurredAt = Number.isFinite(parsedOccurredAt) ? parsedOccurredAt : now;
+  const payloadHash = await hashPayload(event);
+  const eventJson = JSON.stringify(event);
+  const state = resendEventState(event.type);
+  const title = `Resend ${event.type.replace("email.", "")}`;
+  const eventRowId = `pwe_${crypto.randomUUID()}`;
+
+  const existing = await db
+    .prepare("SELECT id, workspace_id, action_id FROM provider_webhook_events WHERE provider = 'resend' AND provider_event_id = ? LIMIT 1")
+    .bind(eventId)
+    .first<{ id: string; workspace_id: string; action_id: string | null }>();
+  if (existing && existing.workspace_id !== enabledWorkspaceId) {
+    return Response.json(
+      { error: "Resend event is already bound to another workspace." },
+      { status: 409 },
+    );
+  }
+  if (existing?.action_id) {
+    return Response.json({ received: true, duplicate: true, matched: true });
+  }
+
+  const attempt = await db
+    .prepare("SELECT workspace_id, mission_id, action_id FROM action_execution_attempts WHERE provider = 'resend' AND provider_request_id = ? AND workspace_id = ? AND status = 'succeeded' LIMIT 1")
+    .bind(event.data.email_id, enabledWorkspaceId)
+    .first<{ workspace_id: string; mission_id: string; action_id: string }>();
+  if (!attempt) {
+    // A signed provider event can arrive before the request thread has persisted
+    // its successful execution attempt. Persist the normalized event before the
+    // acknowledgement so a later redelivery or reconciliation pass can attach it.
+    // The configured workspace is the only tenant this single-account sandbox
+    // adapter is allowed to receive for.
+    await db
+      .prepare("INSERT OR IGNORE INTO provider_webhook_events (id, workspace_id, action_id, provider, provider_event_id, provider_request_id, event_type, payload_hash, occurred_at, received_at, created_at) VALUES (?, ?, NULL, 'resend', ?, ?, ?, ?, ?, ?, ?)")
+      .bind(eventRowId, enabledWorkspaceId, eventId, event.data.email_id, event.type, payloadHash, occurredAt, now, now)
+      .run();
+    return Response.json(
+      { received: true, matched: false, persisted: true },
+      { status: 202 },
+    );
+  }
+
+  const missionDetail = `Signed provider event ${event.type}; provider request ${event.data.email_id}.`;
+  await db.batch([
+    db.prepare("INSERT OR IGNORE INTO provider_webhook_events (id, workspace_id, action_id, provider, provider_event_id, provider_request_id, event_type, payload_hash, occurred_at, received_at, created_at) VALUES (?, ?, ?, 'resend', ?, ?, ?, ?, ?, ?, ?)").bind(eventRowId, attempt.workspace_id, attempt.action_id, eventId, event.data.email_id, event.type, payloadHash, occurredAt, now, now),
+    db.prepare("UPDATE provider_webhook_events SET action_id = ? WHERE workspace_id = ? AND provider = 'resend' AND provider_event_id = ? AND action_id IS NULL").bind(attempt.action_id, attempt.workspace_id, eventId),
+    db.prepare("INSERT OR IGNORE INTO touchpoints (id, workspace_id, mission_id, action_id, experiment_id, channel, event_type, occurred_at, received_at, provider_event_id, raw_event_json, created_at) VALUES (?, ?, ?, ?, NULL, 'email', ?, ?, ?, ?, ?, ?)").bind(`tp_${eventId}`, attempt.workspace_id, attempt.mission_id, attempt.action_id, event.type, occurredAt, now, eventId, eventJson, now),
+    db.prepare("INSERT OR IGNORE INTO evidence (id, workspace_id, mission_id, source_url, source_type, content_hash, parser_version, title, summary, extracted_facts_json, provenance_json, state, contradiction_of_id, created_at, updated_at) VALUES (?, ?, ?, NULL, 'provider_webhook', ?, '1.0', ?, ?, ?, ?, ?, NULL, ?, ?)").bind(`ev_${eventId}`, attempt.workspace_id, attempt.mission_id, payloadHash, title, `Signed Resend event ${event.type} for the submitted email.`, JSON.stringify({ provider_request_id: event.data.email_id, event_type: event.type, occurred_at: event.created_at }), JSON.stringify({ provider: "resend", svix_id: eventId, action_id: attempt.action_id }), state, now, now),
+    db.prepare("INSERT INTO mission_events (mission_id, event_type, title, detail, actor, created_at) SELECT ?, 'measurement', ?, ?, 'Resend webhook', ? WHERE NOT EXISTS (SELECT 1 FROM mission_events WHERE mission_id = ? AND event_type = 'measurement' AND detail = ?)").bind(attempt.mission_id, title, missionDetail, now, attempt.mission_id, missionDetail),
+  ]);
+
+  if (["email.bounced", "email.failed", "email.complained", "email.suppressed"].includes(event.type)) {
+    await db.prepare("UPDATE connector_installations SET status = CASE WHEN status IN ('healthy','connected') THEN 'degraded' ELSE status END, last_error = ?, health_checked_at = ?, updated_at = ? WHERE workspace_id = ? AND provider = 'Resend'").bind(`Signed provider event: ${event.type}`, now, now, attempt.workspace_id).run();
+  }
+  return Response.json({ received: true, matched: true, event_type: event.type });
+}
+
+function readMetadataValue(payload: Record<string, unknown>, key: string): string | null {
+  const direct = payload[key];
   if (typeof direct === "string" && direct.trim()) return direct.trim();
   const data = payload.data;
   if (data && typeof data === "object") {
@@ -140,9 +246,9 @@ function readWorkspaceIdFromPayload(payload: Record<string, unknown>): string | 
       const meta = objectRecord.metadata;
       if (meta && typeof meta === "object") {
         const metaRecord = meta as Record<string, unknown>;
-        const metaWorkspace = metaRecord.workspace_id;
-        if (typeof metaWorkspace === "string" && metaWorkspace.trim()) {
-          return metaWorkspace.trim();
+        const value = metaRecord[key];
+        if (typeof value === "string" && value.trim()) {
+          return value.trim();
         }
       }
     }
@@ -164,6 +270,18 @@ function readAmountCents(payload: Record<string, unknown>): number | null {
   const amountReceived = objectRecord.amount_received;
   if (typeof amountReceived === "number" && Number.isFinite(amountReceived)) {
     return Math.floor(amountReceived);
+  }
+  const amountPaid = objectRecord.amount_paid;
+  if (typeof amountPaid === "number" && Number.isFinite(amountPaid)) {
+    return Math.floor(amountPaid);
+  }
+  const amountTotal = objectRecord.amount_total;
+  if (typeof amountTotal === "number" && Number.isFinite(amountTotal)) {
+    return Math.floor(amountTotal);
+  }
+  const amountRefunded = objectRecord.amount_refunded;
+  if (typeof amountRefunded === "number" && Number.isFinite(amountRefunded)) {
+    return Math.floor(amountRefunded);
   }
   return null;
 }

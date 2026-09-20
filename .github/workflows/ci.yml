@@ -1,15 +1,7 @@
 # Continuous integration for Distribution OS.
 #
 # Runs on every push to `main` and on every pull request targeting `main`.
-# Pipeline: install deps (Sites runtime shim) -> lint -> test -> build.
-# The TypeScript test suite is executed directly through the `tsx`
-# loader via `node --import tsx --test tests/*.test.ts`, so the suite
-# runs without a prior production build. The build step at the end
-# verifies that the Worker still compiles for Cloudflare deployment.
-#
-# The Sites runtime shim relies on Linux-specific utilities
-# (flock, GNU timeout, curl, sha256sum), so the job always runs on
-# Ubuntu. See scripts/install-ci.sh and scripts/build-verified.sh.
+# Uses the same typecheck, lint, Worker build and full TS/MJS test gate as Docker.
 
 name: CI
 
@@ -30,7 +22,7 @@ permissions:
 
 jobs:
   verify:
-    name: Install · Lint · Test · Build
+    name: Typecheck · Lint · Build · Test
     runs-on: ubuntu-24.04
     timeout-minutes: 20
 
@@ -58,21 +50,14 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Install dependencies (Sites runtime)
-        env:
-          SITES_INSTALL_TIMEOUT: 10m
+      - name: Install locked dependencies
         run: npm run install:ci
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Run TypeScript tests
-        run: node --import tsx --test tests/*.test.ts
-
-      - name: Build
+      - name: Verify release
         env:
-          SITES_BUILD_TIMEOUT: 5m
-        run: npm run build
+          SITES_BUILD_TIMEOUT_MS: 300000
+          WRANGLER_SEND_METRICS: "false"
+        run: npm run verify
 
       - name: Upload build artifacts
         if: always()
@@ -80,7 +65,7 @@ jobs:
         with:
           name: dist
           path: |
-            .worker/dist
-            .openai
+            dist
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7

@@ -12,7 +12,7 @@ export const ALLOWED_PORTS = [80, 443, 8080, 8443, 3000, 5173] as const;
 /** Maximum number of HTTP redirects that will be followed. */
 export const MAX_REDIRECTS = 5;
 
-/** Per-request timeout in milliseconds. */
+/** Total redirect-chain and response-body timeout in milliseconds. */
 export const REQUEST_TIMEOUT_MS = 10_000;
 
 /** Maximum response body size in bytes. */
@@ -63,6 +63,7 @@ const IPV4_BLOCKED_RANGES: Ipv4Rule[] = [
   { name: "link-local", test: (a, b) => a === 169 && b === 254 },
   { name: "reserved-0", test: (a) => a === 0 },
   { name: "cgnat", test: (a, b) => a === 100 && b >= 64 && b <= 127 },
+  { name: "reserved", test: (a, b) => a >= 240 || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)) },
   {
     name: "test-net",
     test: (a, b, c) =>
@@ -99,22 +100,14 @@ function isBlockedIpv4(ip: string): boolean {
 
 function isBlockedIpv6(ip: string): boolean {
   const lower = ip.toLowerCase().replace(/^\[|\]$/g, "");
-  // Unique Local Addresses: fc00::/7 (fc or fd prefix)
-  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
-  // Link-local: fe80::/10
-  if (/^fe[89ab]/.test(lower)) return true;
-  // Loopback
-  if (lower === "::1") return true;
-  // Unspecified
-  if (lower === "::" || lower === "") return true;
-  // Multicast: ff00::/8
-  if (lower.startsWith("ff")) return true;
-  // IPv4-mapped: ::ffff:a.b.c.d
-  const v4mapped = lower.match(/^::ffff:([0-9.]+)$/);
-  if (v4mapped) return isBlockedIpv4(v4mapped[1]);
-  // IPv4-compatible: ::a.b.c.d
-  const v4compat = lower.match(/^::([0-9.]+)$/);
-  if (v4compat) return isBlockedIpv4(v4compat[1]);
+  // URL normalizes dotted mapped addresses into hexadecimal words. Restrict
+  // literals to global unicast; exclude translation/transition and special ranges.
+  if (!/^[23][0-9a-f]{3}:/.test(lower)) return true;
+  const [first, second] = lower.split(":");
+  const secondWord = parseInt(second || "0", 16);
+  // Include compressed 2001:: forms in the special-purpose 2001::/23 block.
+  if (first === "2001" && (secondWord < 0x200 || secondWord === 0xdb8)) return true;
+  if (first === "2002" || first === "3fff") return true;
   return false;
 }
 
@@ -133,7 +126,7 @@ export function validatePublicUrl(raw: string): URL {
   try {
     url = new URL(raw);
   } catch {
-    throw new Error(`Invalid URL: ${raw}`);
+    throw new Error("Invalid URL");
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`Non-HTTP protocol not allowed: ${url.protocol}`);
@@ -151,7 +144,7 @@ export function validatePublicUrl(raw: string): URL {
       throw new Error(`Non-standard port not allowed: ${portStr}`);
     }
   }
-  const host = url.hostname;
+  const host = url.hostname.toLowerCase().replace(/\.+$/, "");
   if (host === "") {
     throw new Error("URL must have a hostname");
   }
@@ -163,6 +156,9 @@ export function validatePublicUrl(raw: string): URL {
   }
   if (host === "internal" || host.endsWith(".internal")) {
     throw new Error(".internal TLD is not allowed");
+  }
+  if (!host.includes(".") && !host.includes(":")) {
+    throw new Error("A public hostname is required");
   }
   // IPv4 literal
   if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) {
@@ -185,8 +181,9 @@ export function validatePublicUrl(raw: string): URL {
 /**
  * Fetch a URL while enforcing redirect, timeout, and body-size limits.
  *
- * Each redirect target is re-validated with {@link validatePublicUrl} to
- * prevent SSRF via `Location` headers pointing at internal hosts.
+ * Each redirect target is re-validated with {@link validatePublicUrl}.
+ * Hostname checks do not validate DNS resolution; the deployment must also
+ * enforce private-network isolation at the actual outbound connection.
  */
 export async function fetchWithRedirectLimit(
   rawUrl: string,
@@ -201,29 +198,31 @@ export async function fetchWithRedirectLimit(
 
   let currentUrl = validatePublicUrl(rawUrl);
   let redirectCount = 0;
-
-  for (;;) {
+  const controller = new AbortController();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let timer: ReturnType<typeof setTimeout>;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error("Website fetch timed out"));
+      controller.abort();
+      void reader?.cancel().catch(() => {});
+    }, timeoutMs);
+  });
+  try {
+    for (;;) {
     if (redirectCount > maxRedirects) {
       throw new Error(`Too many redirects (max ${maxRedirects})`);
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let response: Response;
-    try {
-      response = await fetchImpl(currentUrl.href, {
+    const response = await Promise.race([fetchImpl(currentUrl.href, {
         method: options.method,
         headers: options.headers,
         body: options.body,
         signal: controller.signal,
         redirect: "manual",
-      });
-    } catch (err) {
-      clearTimeout(timer);
-      throw err;
-    }
-    clearTimeout(timer);
+      }), deadline]);
 
     if (response.status >= 300 && response.status < 400) {
+      void response.body?.cancel().catch(() => {});
       const location = response.headers.get("location");
       if (!location) {
         throw new Error(
@@ -234,7 +233,7 @@ export async function fetchWithRedirectLimit(
       try {
         nextUrl = new URL(location, currentUrl);
       } catch {
-        throw new Error(`Invalid redirect Location: ${location}`);
+        throw new Error("Invalid redirect Location");
       }
       currentUrl = validatePublicUrl(nextUrl.href);
       redirectCount++;
@@ -247,10 +246,10 @@ export async function fetchWithRedirectLimit(
     let truncated = false;
 
     if (response.body) {
-      const reader = response.body.getReader();
+      reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8", { fatal: false });
       for (;;) {
-        const { done, value } = await reader.read();
+        const { done, value } = await Promise.race([reader.read(), deadline]);
         if (done) break;
         if (!value) continue;
         bytes += value.byteLength;
@@ -260,22 +259,19 @@ export async function fetchWithRedirectLimit(
           const allowedInChunk = value.byteLength - overflow;
           if (allowedInChunk > 0) {
             body += decoder.decode(value.subarray(0, allowedInChunk), {
-              stream: false,
+              stream: true,
             });
           }
-          try {
-            await reader.cancel();
-          } catch {
-            /* ignore */
-          }
+          void reader.cancel().catch(() => {});
           bytes = maxBodyBytes;
           break;
         }
         body += decoder.decode(value, { stream: true });
       }
-      body += decoder.decode();
+      // Drop an incomplete trailing code point when the byte cap cuts UTF-8.
+      if (!truncated) body += decoder.decode();
     } else {
-      body = await response.text();
+      body = await Promise.race([response.text(), deadline]);
       const encoded = new TextEncoder().encode(body);
       bytes = encoded.length;
       if (bytes > maxBodyBytes) {
@@ -296,5 +292,11 @@ export async function fetchWithRedirectLimit(
       truncated,
       redirectCount,
     };
+    }
+  } finally {
+    clearTimeout(timer!);
+    // Never await untrusted stream cleanup beyond the deadline.
+    void reader?.cancel().catch(() => {});
+    controller.abort();
   }
 }

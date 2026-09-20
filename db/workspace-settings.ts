@@ -7,6 +7,7 @@
  * `crypto.randomUUID()` and timestamps use `Date.now()`.
  */
 import { getRawDb } from "./index";
+import { getExecutionSpend } from "./execution-capacity";
 import {
   DEFAULT_SETTINGS,
   parseForbiddenClaims,
@@ -29,10 +30,10 @@ export type UpdateSettingsPatch = Partial<
     | "timezone"
     | "retention_days"
     | "max_daily_actions"
-    | "auto_approve_low_risk"
     | "brand_voice_json"
+    | "forbidden_claims_json"
   >
->;
+> & { auto_approve_low_risk?: boolean };
 
 /**
  * Return the settings row for a workspace, creating it from the pure module's
@@ -51,7 +52,7 @@ export async function getOrCreateSettings(
     .bind(workspaceId)
     .first<WorkspaceSettingsRow>();
   if (existing) {
-    return existing;
+    return { ...existing, ...await getExecutionSpend(db, workspaceId) };
   }
 
   const now = Date.now();
@@ -86,7 +87,7 @@ export async function getOrCreateSettings(
   if (!row) {
     throw new Error("Failed to create workspace settings");
   }
-  return row;
+  return { ...row, ...await getExecutionSpend(db, workspaceId) };
 }
 
 /**
@@ -100,7 +101,18 @@ export async function updateSettings(
   patch: UpdateSettingsPatch,
 ): Promise<WorkspaceSettingsRow> {
   const current = await getOrCreateSettings(workspaceId);
-  const merged: WorkspaceSettingsRow = { ...current, ...stripUndefined(patch) };
+  const cleaned = stripUndefined(patch);
+  const { auto_approve_low_risk: autoApproveLowRisk, ...rowPatch } = cleaned;
+  const merged: WorkspaceSettingsRow = {
+    ...current,
+    ...rowPatch,
+    auto_approve_low_risk:
+      autoApproveLowRisk === undefined
+        ? current.auto_approve_low_risk
+        : autoApproveLowRisk
+          ? 1
+          : 0,
+  };
 
   const budgetValidation = validateBudget({
     monthly_budget_cents: merged.monthly_budget_cents,
@@ -141,7 +153,7 @@ export async function updateSettings(
   const now = Date.now();
   await db
     .prepare(
-      "UPDATE workspace_settings SET monthly_budget_cents = ?, daily_budget_cents = ?, per_action_budget_cents = ?, quiet_hours_start = ?, quiet_hours_end = ?, timezone = ?, retention_days = ?, max_daily_actions = ?, auto_approve_low_risk = ?, brand_voice_json = ?, updated_at = ? WHERE workspace_id = ?",
+      "UPDATE workspace_settings SET monthly_budget_cents = ?, daily_budget_cents = ?, per_action_budget_cents = ?, quiet_hours_start = ?, quiet_hours_end = ?, timezone = ?, retention_days = ?, max_daily_actions = ?, auto_approve_low_risk = ?, brand_voice_json = ?, forbidden_claims_json = ?, updated_at = ? WHERE workspace_id = ?",
     )
     .bind(
       merged.monthly_budget_cents,
@@ -154,6 +166,7 @@ export async function updateSettings(
       merged.max_daily_actions,
       merged.auto_approve_low_risk ? 1 : 0,
       merged.brand_voice_json,
+      merged.forbidden_claims_json,
       now,
       workspaceId,
     )
@@ -168,7 +181,7 @@ export async function updateSettings(
   if (!updated) {
     throw new Error("Workspace settings disappeared after update");
   }
-  return updated;
+  return { ...updated, ...await getExecutionSpend(db, workspaceId) };
 }
 
 /**
@@ -209,7 +222,7 @@ export async function addForbiddenClaim(
   if (!updated) {
     throw new Error("Workspace settings disappeared after update");
   }
-  return updated;
+  return { ...updated, ...await getExecutionSpend(db, workspaceId) };
 }
 
 /**
@@ -249,7 +262,7 @@ export async function removeForbiddenClaim(
   if (!updated) {
     throw new Error("Workspace settings disappeared after update");
   }
-  return updated;
+  return { ...updated, ...await getExecutionSpend(db, workspaceId) };
 }
 
 function stripUndefined<T extends Record<string, unknown>>(value: T): Partial<T> {

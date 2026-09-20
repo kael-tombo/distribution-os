@@ -1,5 +1,8 @@
 # Distribution OS — Deployment Guide
 
+> Runtime-status note: verify release claims against
+> [CURRENT_STATE.md](CURRENT_STATE.md) before deploying.
+
 > End-to-end deployment reference for Distribution OS on Cloudflare
 > Workers + D1. Covers local development, preview deploys, production
 > deploys, database migrations, environment variables, and monitoring.
@@ -206,6 +209,8 @@ Secrets (do NOT put these in `wrangler.toml`):
 ```bash
 npx wrangler secret put OPENAI_API_KEY
 npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put RESEND_WEBHOOK_SECRET
 ```
 
 For a preview environment, create a second `wrangler.preview.toml` with
@@ -221,6 +226,11 @@ a different `database_id` and `name = "distribution-os-preview"`.
 | ----------------------- | -------- | ---------------------------------------------------------------- |
 | `OPENAI_API_KEY`        | no       | When set, missions are generated with the live model. Otherwise simulation mode. |
 | `STRIPE_WEBHOOK_SECRET` | no       | `whsec_...` for verifying Stripe webhook signatures. When unset, `POST /api/webhooks/[provider]` returns `503`. |
+| `RESEND_API_KEY` | no | Sending-only credential for the narrow email adapter. |
+| `RESEND_WEBHOOK_SECRET` | no | Verifies signed Resend delivery events from the raw request body. |
+| `RESEND_WORKSPACE_ID` | no | Exact single workspace allowed to use the site-level Resend credential. |
+| `RESEND_FROM_EMAIL` | no | Exact sender accepted at the execution boundary. |
+| `RESEND_ALLOWED_RECIPIENTS` | no | Comma-separated sandbox allowlist; empty means no outbound email. |
 
 ### Workers vars (non-secret configuration)
 
@@ -274,11 +284,11 @@ Commit the new file alongside the schema change.
 
 ### Apply migrations locally
 
-The local D1 instance is migrated automatically on first run of
-`npm run dev`. To manually apply migrations to the local database:
+Docker startup applies pending migrations automatically. Before using
+`npm run dev` directly, apply migrations to the same local D1 state:
 
 ```bash
-npx wrangler d1 migrations apply DB --local
+npm run db:migrate:local
 ```
 
 ### Apply migrations to preview
@@ -300,7 +310,7 @@ npx wrangler d1 migrations apply distribution-os-prod --remote
 
 ### Migration history
 
-The current migration set (5 migrations, see
+The current migration set (7 migrations, see
 [`drizzle/meta/_journal.json`](../drizzle/meta/_journal.json)):
 
 | # | Tag                                | Purpose                                              |
@@ -310,6 +320,8 @@ The current migration set (5 migrations, see
 | 2 | `0002_sharp_the_santerians`        | Drops redundant `workspaces_owner_idx`.              |
 | 3 | `0003_aberrant_mister_sinister`    | Replaces `missions_updated_at_idx` with composite `(workspace_id, updated_at)`; same for `workspace_connections`. |
 | 4 | `0004_loose_spacker_dave`          | Adds 19 tables: `action_queue`, `agent_runs`, `agent_steps`, `audit_events`, `connector_installations`, `contacts`, `content_assets`, `evidence`, `experiments`, `mission_versions`, `organization_invitations`, `organization_memberships`, `organizations`, `payments`, `strategy_versions`, `touchpoints`, `workspace_settings`. |
+| 5 | `0005_colorful_bishop`             | Adds durable action execution attempts and database-enforced provider idempotency. |
+| 6 | `0006_powerful_katie_power`        | Adds replay-safe provider webhook event storage. |
 
 See [`DATABASE.md`](./DATABASE.md) for the column-by-column reference.
 
@@ -493,8 +505,8 @@ curl -X POST https://distribution-os.example.com/api/data-deletion \
   -d '{"confirm":"DELETE"}'
 ```
 
-This wipes 16 tenant tables in FK-safe order. The audit row is written
-BEFORE the cascade so the deletion intent is durable. See
+This wipes tenant tables in FK-safe order. The audit row is written only after
+the deletion batch succeeds. See
 [`SECURITY.md`](./SECURITY.md#gdpr-compliance) for details.
 
 ---

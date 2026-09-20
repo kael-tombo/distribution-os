@@ -14,6 +14,50 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "./empty-state";
+import type { ProductSource } from "../../lib/product-extraction";
+
+type SavedSource = ProductSource & { id: string; content_hash: string };
+
+export function SavedProductSourceCard({ source }: { source: SavedSource }) {
+  return <article className="ws-card" aria-label="Saved product source">
+    <h3>Saved website content</h3>
+    <p>This is text captured from the website, separate from generated or simulated analysis.</p>
+    <h4>{source.title}</h4>
+    <dl style={{ overflowWrap: "anywhere" }}>
+      <dt>Submitted URL</dt><dd>{source.original_url}</dd>
+      <dt>Retrieved URL</dt><dd>{source.final_url}</dd>
+      <dt>Captured</dt><dd><time dateTime={new Date(source.fetched_at).toISOString()}>{new Date(source.fetched_at).toISOString()}</time></dd>
+    </dl>
+    <ul>{source.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>
+    <details open>
+      <summary>Read saved product text</summary>
+      <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{source.body}</p>
+    </details>
+    <details><summary>Source provenance</summary>
+      <p style={{ overflowWrap: "anywhere" }}>SHA-256: {source.content_hash}</p>
+      <p>Extractor: {source.parser_version}. Region: {source.method}.</p>
+    </details>
+  </article>;
+}
+
+function SavedProductSource({ missionId }: { missionId: string }) {
+  const [state, setState] = useState<{ source?: SavedSource | null; error?: string }>({});
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/mission?source=1&mission_id=${encodeURIComponent(missionId)}`, { signal: controller.signal, cache: "no-store" })
+      .then(async response => {
+        if (!response.ok) throw new Error("Saved website content could not be loaded.");
+        return await response.json() as { source: SavedSource | null };
+      }).then(data => { if (!controller.signal.aborted) setState(data); })
+      .catch(() => { if (!controller.signal.aborted) setState({ error: "Saved website content could not be loaded." }); });
+    return () => controller.abort();
+  }, [missionId, retry]);
+  if (state.error) return <div role="alert" className="ws-error">{state.error} <Button variant="outline" onClick={() => { setState({}); setRetry(value => value + 1); }}>Retry source</Button></div>;
+  if (state.source === undefined) return <p role="status">Loading saved website content…</p>;
+  if (!state.source) return <p>No saved product text is available for this mission. Submit the product URL again to capture its current content.</p>;
+  return <SavedProductSourceCard source={state.source} />;
+}
 
 type EvidenceState =
   | "observed"
@@ -166,6 +210,8 @@ export function EvidencePanel({ missionId }: { missionId: string }) {
           <RefreshCw /> Refresh
         </Button>
       </header>
+
+      <SavedProductSource key={missionId} missionId={missionId} />
 
       <form className="ws-form" onSubmit={submit}>
         <Input

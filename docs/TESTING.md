@@ -2,6 +2,47 @@
 
 > How we test Distribution OS. Covers test structure, running tests,
 > writing new tests, common patterns, and coverage goals.
+>
+> Current runner (2026-09-07): `npm test` builds the application, then
+> `scripts/test.mjs` discovers both `.test.ts` and `.test.mjs` files and runs
+> them through `tsx` and Node's test runner. TypeScript tests are not emitted
+> by the application build. Run `npm run typecheck` separately; the Vite build
+> does not replace it. Inventory and coverage tables below are historical,
+> not measured coverage or a complete current test count.
+
+Campaign brief regression coverage lives in `tests/campaign-brief.test.ts`.
+Run `node --import tsx --test tests/campaign-brief.test.ts` for its nine cases.
+They apply all migrations to a fresh in-memory SQLite database and exercise
+production queries, audit rollback, revision conflicts, tenant isolation,
+history retention, deletion, validation and handoff exports. This verifies
+the SQL contract through a D1-compatible batch fixture; it is not a hosted
+D1 or browser interaction test.
+
+Campaign planning adds `campaign-planning.test.ts` and
+`campaign-planner.test.ts` (23 cases) plus a rendered planning-card case in
+`rendered-html.test.mjs`. They cover objective validation, exact confirmation,
+claim races, tenant isolation, audit rollback, expired leases, retry/rolling
+limits, cancellation and the mocked AI contract. The September 13 review adds
+maximum-length accepted input coverage, complete brief exports, and starting
+a new objective from an unchanged brief after cancellation while preserving
+the earlier job. Rendered recovery states point to the new-revision control.
+
+For a complete HTTP check, build the Docker image and start a disposable
+instance **without volumes, environment files or provider credentials**:
+
+```sh
+docker compose build
+docker run --rm -d --name distribution-os-planning-check -p 127.0.0.1:5174:5173 -e DISTRIBUTION_LOCAL_WORKSPACE=1 distribution-os-app:latest
+node scripts/smoke-campaign-planning.mjs http://localhost:5174
+docker stop distribution-os-planning-check
+```
+
+The smoke script creates synthetic data and refuses a nonempty brief/planning
+workspace. It is intentionally restricted to the disposable port, not the
+main local app. It checks authentication, save/confirm/run/reload, duplicate
+confirmation, stale execution, unavailable AI and validation errors against
+the actual D1 development runtime. The disposable container is removed on
+stop; no live provider is called.
 
 Distribution OS is built around a strict separation between **pure
 business logic** (in `lib/*-pure.ts` and `db/*-pure.ts`) and **runtime
@@ -38,12 +79,12 @@ is fast, has zero install cost, and integrates cleanly with
 | Assertions          | `node:assert/strict`                                  |
 | File extension      | `.test.ts` (pure-logic) / `.test.mjs` (rendered HTML) |
 | Build prerequisite  | `npm run build` (TypeScript → JS)                     |
-| Test discovery      | `node --test tests/*.test.mjs`                        |
+| Test discovery      | `scripts/test.mjs`: both `.test.ts` and `.test.mjs` |
 
-The build step transpiles `.ts` test files to `.mjs` in the build
-output; `node --test tests/*.test.mjs` then runs them. The `.mjs`
-extension on the glob is intentional — it filters out the `.ts` source
-files that have not been transpiled yet.
+The runner discovers test files in `tests/` and invokes Node's test runner
+through `tsx`, which loads TypeScript source directly. The application build
+does not emit test files. A `.test.mjs`-only glob omits TypeScript tests and
+must not be used as the complete suite.
 
 ---
 
@@ -428,6 +469,6 @@ non-zero exit as a build break.
 
 ### Build dependency
 
-Because `npm run test` runs `npm run build` first, a TypeScript compile
-error will fail the test step before any test runs. This is intentional
-— type errors are test failures.
+`npm test` runs the application build first, so a bundling failure prevents
+the tests from running. The build does not perform TypeScript type checking.
+Use `npm run verify` to run type checking, lint, the build and the full suite.

@@ -1,0 +1,25 @@
+.git
+.github
+.cursor
+.shipstudio
+.sites-runtime
+.wrangler
+.next
+dist
+node_modules
+outputs
+coverage
+work
+
+# Never bake local credentials into an image. Compose loads the optional
+# .dev.vars file into the container environment at runtime.
+.env*
+!.env.example
+.dev.vars*
+
+*.log
+*.tsbuildinfo
+npm-debug.log*
+Dockerfile*
+compose*.yaml
+compose*.yml
