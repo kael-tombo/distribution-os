@@ -1,5 +1,13 @@
 # Distribution OS
 
+> **Active V1 scope (2026-09-17):** [PRODUCT.md](PRODUCT.md) supersedes the
+> voice/multichannel roadmap below. The target is one URL → strategy → five X
+> text posts → edit/approve → one real publication → available metrics.
+> See [active stories](docs/V1_USER_STORIES.md), [governance](docs/V1_GOVERNANCE.md),
+> [readiness findings](docs/V1_READINESS.md) and the
+> [US-001 implementation and release gates](docs/US-001_AGENT_CONTRACT.md).
+> Runtime descriptions below remain reference material, not proof of V1 completion.
+
 Distribution OS is a voice-first, agentic platform for managing the marketing, content operations and distribution of a solution across connected MCP tools and APIs. It owns strategy, campaign coordination, approvals, distribution and learning; specialized platforms produce the actual content. The target is a qualified ecosystem of 20+ tools, with campaign-specific goals spanning awareness, demand, adoption, retention and revenue.
 
 The product is intentionally governed:
@@ -72,6 +80,37 @@ cp .env.example .dev.vars
 docker compose up --build
 ```
 
+For a detached start that waits for a healthy app:
+
+```sh
+docker compose up -d --build --wait --wait-timeout 300 app
+docker compose exec -T app node scripts/docker-smoke.mjs record
+```
+
+The smoke check verifies local sign-in, authenticated D1 access, rejected forged
+identity headers and cross-origin writes. It makes no provider calls and does
+not modify campaign content. To check persistence across restart:
+
+```sh
+docker compose restart app
+docker compose up -d --wait --wait-timeout 300 app
+docker compose exec -T app node scripts/docker-smoke.mjs verify
+```
+
+Run typecheck, lint, the production Worker build and the entire test suite in a
+separate container, with no provider secrets, app volumes or external network:
+
+```sh
+docker compose --profile test build verify
+docker compose --profile test run --rm --no-deps verify
+```
+
+Both image targets run as the non-root `node` user. The final Dockerfile target
+is `development`; `verification` is the isolated test target. Optional Wrangler
+usage telemetry is disabled in both images to reduce network-dependent startup
+delays. See the
+[Docker review evidence](docs/DOCKER_REVIEW_CONTRACT.md) for results and limits.
+
 Open `http://localhost:5173`. The port is bound to loopback only. Set `APP_PORT` to change the host-side port, for
 example `APP_PORT=8080 docker compose up --build`. The D1 and runtime state are
 kept in named Docker volumes. Rebuild the image after source or dependency
@@ -79,6 +118,10 @@ changes with `docker compose up --build`. To stop the app without deleting local
 data, run `docker compose down`. Startup applies pending D1 migrations before
 serving requests and stops if a migration fails. This requires Docker Compose
 2.24.0 or later for the optional environment file.
+
+In PowerShell, use `$env:APP_PORT = '8080'` before the Compose command to change
+the published port. For startup diagnostics, use `docker compose logs --tail 100 app`.
+Avoid `docker compose down -v` unless you intend to erase saved local data.
 
 Compose loads `.dev.vars` at runtime; it is excluded from Git and image builds.
 The Worker reads these values using [Cloudflare's process-environment option](https://developers.cloudflare.com/workers/local-development/environment-variables/).
@@ -94,6 +137,9 @@ The container intentionally uses the development server: `vinext start` is a
 Node production server and does not provide the Cloudflare D1 binding required
 by this application. Production remains a Cloudflare Worker deployment as
 described in [Deployment](docs/DEPLOYMENT.md).
+Docker's default networking does not prove outbound private-network isolation or
+DNS-rebinding protection. This local setup does not satisfy the US-001 external
+release gate and must remain bound to loopback.
 
 ## Configuration
 

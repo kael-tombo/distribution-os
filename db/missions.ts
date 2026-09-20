@@ -12,6 +12,8 @@ import { calculateCost } from "./agent-runs-pure";
 import { createEvidence } from "./evidence";
 import { MISSION_MEASUREMENT_SIGNALS_SQL } from "./mission-signals";
 import { getMissionNextStep, type MissionNextStep } from "../lib/mission-next-step";
+import { productSourceSchema, type ProductSource } from "../lib/product-extraction";
+import { logAuditEvent } from "./audit";
 
 export type MissionMode = "simulation" | "live";
 
@@ -54,6 +56,7 @@ export type MissionWebsiteEvidence = {
   title: string;
   summary: string;
   content: unknown;
+  source?: ProductSource;
 };
 
 export type MissionSummary = {
@@ -146,6 +149,7 @@ export async function saveMission(args: {
   const db = getRawDb();
   const now = Date.now();
   const missionJson = JSON.stringify(args.mission);
+  const websiteOrigin = new URL(args.websiteUrl).origin;
 
   const runId = `run_${crypto.randomUUID()}`;
   const stepId = `step_${crypto.randomUUID()}`;
@@ -175,7 +179,7 @@ export async function saveMission(args: {
       )
       .bind(
         args.mission.mission_id,
-        `Analyzed ${args.websiteUrl} and stored the product context as mission memory.`,
+        `Analyzed ${websiteOrigin} and stored the product context as mission memory.`,
         now
       ),
     db
@@ -193,7 +197,7 @@ export async function saveMission(args: {
         args.mission.mission_id,
         args.run.prompt_version,
         args.run.model,
-        JSON.stringify([args.websiteUrl]),
+        JSON.stringify([websiteOrigin]),
         JSON.stringify([`mission:${args.mission.mission_id}`]),
         tokensInput,
         tokensOutput,
@@ -211,7 +215,7 @@ export async function saveMission(args: {
         stepId,
         runId,
         args.mode === "live" ? "openai.responses" : "deterministic.simulation",
-        JSON.stringify({ website_url: args.websiteUrl, untrusted_external_content: true }),
+        JSON.stringify({ website_origin: websiteOrigin, untrusted_external_content: true }),
         JSON.stringify({ mission_id: args.mission.mission_id, validated: true }),
         args.run.started_at,
         args.run.completed_at,
@@ -221,19 +225,28 @@ export async function saveMission(args: {
 
   try {
     if (args.websiteEvidence) {
-      await createEvidence(args.workspaceId, {
+      const source = args.websiteEvidence.source ? productSourceSchema.parse(args.websiteEvidence.source) : null;
+      const evidence = await createEvidence(args.workspaceId, {
         mission_id: args.mission.mission_id,
         source_url: args.websiteEvidence.source_url,
         source_type: "website",
         title: args.websiteEvidence.title,
         summary: args.websiteEvidence.summary,
-        content: args.websiteEvidence.content,
+        content: source ?? args.websiteEvidence.content,
         extracted_facts: {
           title: args.websiteEvidence.title,
           source_url: args.websiteEvidence.source_url,
+          ...(source ? { product_source: source } : {}),
         },
-        provenance: { fetched_at: now, parser_version: "1.0" },
+        provenance: { fetched_at: source?.fetched_at ?? now, parser_version: source?.parser_version ?? "1.0" },
+        parser_version: source?.parser_version ?? "1.0",
       });
+      if (source) {
+        await logAuditEvent(args.workspaceId, {
+          event_category: "action", event_type: "product.source_captured", resource_type: "evidence", resource_id: evidence.id,
+          detail: { mission_id: args.mission.mission_id, origin: new URL(source.final_url).origin, parser_version: source.parser_version, content_hash: evidence.content_hash },
+        });
+      }
     }
 
     for (const [index, assumption] of (args.mission.assumptions ?? []).entries()) {
@@ -321,14 +334,26 @@ export async function saveMission(args: {
       });
     }
   } catch (error) {
-    await db
-      .prepare("DELETE FROM missions WHERE id = ? AND workspace_id = ?")
-      .bind(args.mission.mission_id, args.workspaceId)
-      .run();
+    // Compensation also removes capture audit entries if a later artifact fails.
+    await db.batch([
+      db.prepare("DELETE FROM audit_events WHERE workspace_id = ? AND event_type = 'product.source_captured' AND resource_id IN (SELECT id FROM evidence WHERE mission_id = ? AND workspace_id = ?)")
+        .bind(args.workspaceId, args.mission.mission_id, args.workspaceId),
+      db.prepare("DELETE FROM missions WHERE id = ? AND workspace_id = ?")
+        .bind(args.mission.mission_id, args.workspaceId),
+    ]);
     throw error;
   }
 
   return getMission(args.mission.mission_id, args.workspaceId);
+}
+
+export async function getSavedProductSource(missionId: string, workspaceId: string) {
+  const row = await getRawDb().prepare(
+    "SELECT e.id, e.content_hash, e.extracted_facts_json FROM evidence e INNER JOIN missions m ON m.id = e.mission_id AND m.workspace_id = e.workspace_id WHERE e.mission_id = ? AND e.workspace_id = ? AND e.source_type = 'website' AND e.parser_version = 'product-source-v1' ORDER BY e.created_at DESC LIMIT 1"
+  ).bind(missionId, workspaceId).first<{ id: string; content_hash: string; extracted_facts_json: string }>();
+  if (!row) return null;
+  const facts = JSON.parse(row.extracted_facts_json) as { product_source?: unknown };
+  return { id: row.id, content_hash: row.content_hash, ...productSourceSchema.parse(facts.product_source) };
 }
 
 export async function getMission(missionId: string, workspaceId: string) {

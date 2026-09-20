@@ -26,6 +26,20 @@ services:
       - sites_runtime:/app/.sites-runtime
     stop_grace_period: 15s
 
+  # Separate writable container: no app volumes, provider secrets or network.
+  verify:
+    profiles: ["test"]
+    image: distribution-os-verify:latest
+    build:
+      context: .
+      target: verification
+    init: true
+    network_mode: none
+    environment:
+      CI: "true"
+    healthcheck:
+      disable: true
+
 volumes:
   wrangler_state:
   sites_runtime:

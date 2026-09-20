@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { commitConfirmedExecution } from "../db/confirmed-execution";
 import { ActionDecisionConflict } from "../db/action-decisions";
+import { getExecutionSpend } from "../db/execution-capacity";
 import type { ActionRow } from "../db/actions-pure";
 
 function fixture() {
@@ -20,10 +21,14 @@ function fixture() {
       VALUES ('action_a', 'ws_a', 'mission_a', 'send_email', 'email', 'Hello', 'Hello', '{}', 'reviewed', 'approved', 2, 'key_a', 1, 1);
     INSERT INTO action_execution_attempts (id, workspace_id, mission_id, action_id, provider,
       idempotency_key, payload_hash, status, provider_request_id, receipt_json, started_at, created_at, updated_at)
-      VALUES ('attempt_a', 'ws_a', 'mission_a', 'action_a', 'resend', 'execution_a', 'reviewed', 'succeeded', 'provider_a', '{"id":"provider_a"}', 1, 1, 1);`);
+      VALUES ('attempt_a', 'ws_a', 'mission_a', 'action_a', 'resend', 'execution_a', 'reviewed', 'succeeded', 'provider_a', '{"id":"provider_a"}', 1, 1, 1);
+    INSERT INTO execution_submissions (id, workspace_id, attempt_id, submission_number, projected_cost_cents, started_at)
+      VALUES ('submission_a', 'ws_a', 'attempt_a', 1, 2, 1);`);
   type Statement = { sql: string; values: (string | number | null)[] };
   const db = {
-    prepare: (sql: string) => ({ bind: (...values: Statement["values"]) => ({ sql, values }) }),
+    prepare: (sql: string) => ({ bind: (...values: Statement["values"]) => ({ sql, values,
+      async first() { return sqlite.prepare(sql).get(...values) ?? null; },
+    }) }),
     async batch(statements: Statement[]) {
       sqlite.exec("BEGIN");
       try {
@@ -35,20 +40,21 @@ function fixture() {
   } as unknown as D1Database;
   const action = () => sqlite.prepare("SELECT * FROM action_queue").get() as ActionRow;
   const count = (table: string) => sqlite.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get()?.n;
-  const spent = () => sqlite.prepare("SELECT daily_spent_cents, monthly_spent_cents FROM workspace_settings").get();
+  const spent = () => getExecutionSpend(db, "ws_a", 100);
   return { sqlite, db, action, count, spent,
     commit: (snapshot = action()) => commitConfirmedExecution(db, snapshot, "provider_a", '{"id":"provider_a"}', 2, 100) };
 }
 
-test("confirmed receipt commits execution, audit, spend and observed evidence exactly once after expiry", async (t) => {
+test("confirmed receipt recovery commits evidence once and never duplicates ledger spend after expiry", async (t) => {
   const f = fixture(); t.after(() => f.sqlite.close());
   const snapshot = f.action();
   const results = await Promise.all([f.commit(snapshot), f.commit(snapshot)]);
   assert.ok(results.every((row) => row.status === "executed"));
   await f.commit();
   for (const table of ["audit_events", "touchpoints", "evidence", "mission_events"]) assert.equal(f.count(table), 1, table);
-  assert.equal(f.spent()?.daily_spent_cents, 2);
-  assert.equal(f.spent()?.monthly_spent_cents, 2);
+  assert.equal((await f.spent()).daily_spent_cents, 2);
+  assert.equal((await f.spent()).monthly_spent_cents, 2);
+  assert.equal(f.count("execution_submissions"), 1);
   assert.equal(f.sqlite.prepare("SELECT state FROM evidence").get()?.state, "observed");
   assert.equal(f.sqlite.prepare("SELECT event_type FROM audit_events").get()?.event_type, "action.executed");
 });
@@ -59,7 +65,8 @@ for (const table of ["audit_events", "evidence", "mission_events"]) {
     f.sqlite.exec(`CREATE TRIGGER reject_write BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'storage unavailable'); END`);
     await assert.rejects(f.commit(), /storage unavailable/);
     assert.equal(f.action().status, "approved");
-    assert.equal(f.spent()?.daily_spent_cents, 0);
+    // The provider already succeeded; a local rollback must not erase its cost.
+    assert.equal((await f.spent()).daily_spent_cents, 2);
     for (const name of ["audit_events", "touchpoints", "evidence", "mission_events"]) assert.equal(f.count(name), 0);
     assert.equal(f.sqlite.prepare("SELECT status FROM action_execution_attempts").get()?.status, "succeeded");
     f.sqlite.exec("DROP TRIGGER reject_write");
@@ -83,9 +90,12 @@ test("unconfirmed, mismatched or missing persisted receipts cannot create succes
     const f = fixture(); t.after(() => f.sqlite.close());
     const snapshot = f.action();
     f.sqlite.exec(sql);
+    const spendBefore = await f.spent();
+    const submissionsBefore = f.count("execution_submissions");
     await assert.rejects(f.commit(snapshot), ActionDecisionConflict, sql);
     for (const table of ["audit_events", "touchpoints", "evidence", "mission_events"]) assert.equal(f.count(table), 0, sql);
-    assert.equal(f.spent()?.daily_spent_cents, 0);
+    assert.deepEqual(await f.spent(), spendBefore);
+    assert.equal(f.count("execution_submissions"), submissionsBefore);
   }
 });
 

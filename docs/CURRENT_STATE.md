@@ -1,5 +1,21 @@
 # Distribution OS: Current State
 
+## V1 reset and inspection — 2026-09-17
+
+[PRODUCT.md](../PRODUCT.md) now controls scope and supersedes the product thesis
+and next-wave roadmap below. Only [US-001](US-001_AGENT_CONTRACT.md) is selected,
+awaiting approval. No application code or deployment changed in this reset.
+
+The [new readiness inspection](V1_READINESS.md) qualifies older claims here:
+the website evidence save path hashes cleaned content but does not retain that
+text; the fetch timeout ends before body consumption; an existing edge test
+accepts a mapped private IPv6 destination. Public URL safety is therefore not
+fully established by the existing passing tests. X OAuth, five complete X posts,
+X publication and X metrics are not demonstrated. No V1 story is Complete.
+
+The implementation inventory below is historical context; follow the active V1
+documents for work order and the readiness report for newly observed gaps.
+
 Implementation updated: 2026-09-13. See `worklog.md` for verification evidence.
 
 This document is the authority for claims about what the repository actually does today. Architecture and API documents may also describe target-state components; those are not proof of a runtime capability.

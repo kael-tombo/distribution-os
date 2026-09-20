@@ -17,6 +17,8 @@ function fixture() {
     INSERT INTO workspaces VALUES ('ws_b', 'owner_b', 'b@example.com', 'B', 'founder', 1, 1);
     INSERT INTO missions (id, workspace_id, website_url, product_name, mode, mission_json, created_at, updated_at)
       VALUES ('mission_a', 'ws_a', 'https://example.com', 'Example', 'simulation', '{}', 1, 1);
+    INSERT INTO workspace_settings (id, workspace_id, created_at, updated_at)
+      VALUES ('settings_a', 'ws_a', 1, 1);
     INSERT INTO action_queue (id, workspace_id, mission_id, action_type, channel, title, summary,
       payload_json, payload_hash, expires_at, idempotency_key, created_at, updated_at)
       VALUES ('action_a', 'ws_a', 'mission_a', 'send_email', 'email', 'Hello', 'Hello', '{}', 'reviewed', 100, 'key_a', 1, 1);`);
@@ -176,9 +178,12 @@ test("a winning execution claim blocks expiry and allows only one submission", a
   assert.equal(second.created, false);
   assert.equal(first.attempt.id, second.attempt.id);
   await assert.rejects(commitActionDecision(f.db, snapshot, "expired", "system:expiry", { now: 100 }), ActionDecisionConflict);
-  assert.equal(await beginApprovedSubmission(f.db, "ws_b", first.attempt.id, ["claimed"], 70), false);
-  assert.equal(await beginApprovedSubmission(f.db, "ws_a", first.attempt.id, ["claimed"], 70), true);
-  assert.equal(await beginApprovedSubmission(f.db, "ws_a", first.attempt.id, ["claimed"], 71), false);
+  assert.equal(await beginApprovedSubmission(f.db, "ws_b", first.attempt.id, ["claimed"], 70), null);
+  const token = await beginApprovedSubmission(f.db, "ws_a", first.attempt.id, ["claimed"], 70);
+  assert.equal(typeof token, "string");
+  assert.equal(f.sqlite.prepare("SELECT id FROM execution_submissions WHERE attempt_id = ?").get(first.attempt.id)?.id, token);
+  assert.equal(await beginApprovedSubmission(f.db, "ws_a", first.attempt.id, ["claimed"], 71), null);
+  assert.equal(f.sqlite.prepare("SELECT COUNT(*) AS n FROM execution_submissions").get()?.n, 1);
   assert.equal(f.row().status, "approved");
 });
 
@@ -186,7 +191,8 @@ test("submission rechecks expiry even when a claim was acquired before the deadl
   const f = fixture(); t.after(() => f.sqlite.close());
   await commitActionDecision(f.db, f.row(), "approved", "owner_a", { now: 50, payloadHash: "reviewed" });
   const { attempt } = await claimApprovedExecution(f.db, claimInput, 60);
-  assert.equal(await beginApprovedSubmission(f.db, "ws_a", attempt.id, ["claimed"], 100), false);
+  assert.equal(await beginApprovedSubmission(f.db, "ws_a", attempt.id, ["claimed"], 100), null);
+  assert.equal(f.sqlite.prepare("SELECT COUNT(*) AS n FROM execution_submissions").get()?.n, 0);
 });
 
 test("expiry winning a failed-attempt retry prevents provider resubmission", async (t) => {
@@ -195,7 +201,7 @@ test("expiry winning a failed-attempt retry prevents provider resubmission", asy
   const { attempt } = await claimApprovedExecution(f.db, claimInput, 60);
   f.sqlite.exec("UPDATE action_execution_attempts SET status = 'failed'");
   await commitActionDecision(f.db, f.row(), "expired", "system:expiry", { now: 100 });
-  assert.equal(await beginApprovedSubmission(f.db, "ws_a", attempt.id, ["failed"], 101), false);
+  assert.equal(await beginApprovedSubmission(f.db, "ws_a", attempt.id, ["failed"], 101), null);
   assert.equal(f.sqlite.prepare("SELECT status FROM action_execution_attempts").get()?.status, "failed");
 });
 

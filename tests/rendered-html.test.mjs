@@ -19,6 +19,24 @@ after(async () => {
   await vite.close();
 });
 
+test("saved source shows real observation, provenance, warnings and escaped text", async () => {
+  const { SavedProductSourceCard } = await vite.ssrLoadModule("/app/workspace/evidence-panel.tsx");
+  const html = renderToStaticMarkup(React.createElement(SavedProductSourceCard, { source: {
+    id: "ev_test", content_hash: "a".repeat(64), original_url: "https://example.com/start", final_url: "https://example.com/",
+    title: "Example product", description: "", body: '<script>alert("unsafe")</script> Product & value',
+    fetched_at: 1_800_000_000_000, parser_version: "product-source-v1", method: "main", truncated: true,
+    warnings: ["Only part of the page was captured."],
+  } }));
+  assert.match(html, /Saved website content/);
+  assert.match(html, /separate from generated or simulated analysis/);
+  assert.match(html, /<summary>Read saved product text<\/summary>/);
+  assert.match(html, /Only part of the page was captured/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /<time dateTime=/);
+  assert.match(html, /SHA-256/);
+});
+
 test("renders development preview metadata", async () => {
   const { default: RootLayout } = await vite.ssrLoadModule("/app/layout.tsx");
   const html = renderToStaticMarkup(

@@ -4,6 +4,7 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { ActionDecisionConflict } from "../db/action-decisions";
+import { EXECUTION_RETRY_WINDOW_MS, SUBMISSION_LEASE_MS } from "../db/action-execution-claims";
 import * as actions from "../db/actions-pure";
 import * as resend from "../lib/resend-email";
 import type { ActionExecutionAttemptRow } from "../db/action-execution-attempts";
@@ -54,6 +55,7 @@ async function fixture(expiresAt = 1) {
   const dependencies: Record<string, unknown> = {
     "cloudflare:workers": { env: {} },
     "db/action-decisions": { ActionDecisionConflict, commitActionDecision: async () => { action.status = "expired"; } },
+    "db/action-execution-claims": { EXECUTION_RETRY_WINDOW_MS, SUBMISSION_LEASE_MS },
     "db/confirmed-execution": { commitConfirmedExecution: async () => { commits++; action.status = "executed"; return { ...action }; } },
     "db/action-execution-attempts": {
       getExecutionAttemptByKey: async (workspaceId: string, key: string) => {
@@ -67,7 +69,7 @@ async function fixture(expiresAt = 1) {
     "db/actions": { ...actions, getAction: async () => ({ ...action }) },
     "db/audit": { logAuditEvent: async () => {} },
     "db/connectors-pure": { buildConnectorId: forbidden },
-    "db/connector-installations": { getInstallation: forbidden },
+    "db/connector-installations": { getInstallation: forbidden, updateHealth: forbidden, updateInstallationStatus: forbidden },
     "db/index": { getRawDb: () => db },
     "db/workspace-settings": { getOrCreateSettings: forbidden },
     "db/workspaces": { requireRequestIdentity: () => ({}), ensureWorkspace: async () => ({ id: "ws_a", owner_user_id: "owner_a" }) },

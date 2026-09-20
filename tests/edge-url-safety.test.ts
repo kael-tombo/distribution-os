@@ -48,18 +48,17 @@ test("edge: validatePublicUrl rejects IPv6 ULA fc00::1 and link-local fe80::1", 
   );
 });
 
-test("edge: validatePublicUrl does NOT block IPv4-mapped IPv6 (Node URL parser normalises to hex form)", () => {
-  // Node's URL parser converts `https://[::ffff:127.0.0.1]/` into the host
-  // `[::ffff:7f00:1]` (pure-hex form), which no longer matches the
-  // implementation's `^::ffff:([0-9.]+)$` regex. This is a known limitation
-  // of the current SSRF guard — we document it here so future hardening can
-  // flip the assertion from "accepts" to "rejects".
-  const url = validatePublicUrl("https://[::ffff:127.0.0.1]/");
-  // The normalised hostname is the pure-hex form (no dotted-quad).
-  assert.equal(url.hostname, "[::ffff:7f00:1]");
-  // The same applies to a mapped private IPv4.
-  const urlPrivate = validatePublicUrl("https://[::ffff:10.0.0.1]/");
-  assert.equal(urlPrivate.hostname, "[::ffff:a00:1]");
+test("edge: normalized mapped IPv6 and trailing-dot private names are blocked", () => {
+  for (const host of ["[::ffff:127.0.0.1]", "[::ffff:10.0.0.1]", "[::ffff:7f00:1]", "[::ffff:a00:1]", "localhost.", "service.local.", "[64:ff9b::a00:1]", "[2002:a00:1::]", "240.0.0.1", "198.18.0.1"]) {
+    assert.throws(() => validatePublicUrl(`https://${host}/`));
+  }
+});
+
+test("edge: compressed IPv6 special-purpose and transition ranges remain blocked", () => {
+  for (const ip of ["2001::1", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "2001:100::1", "2001:1ff::1", "2002:a00:1::1", "2001:db8::1"]) {
+    assert.throws(() => validatePublicUrl(`https://[${ip}]/`), /IPv6/, ip);
+  }
+  assert.doesNotThrow(() => validatePublicUrl("https://[2001:200::1]/"));
 });
 
 test("edge: validatePublicUrl accepts IDN domains (auto-punycoded by Node URL parser)", () => {
